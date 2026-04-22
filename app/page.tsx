@@ -49,8 +49,6 @@ type ChatMessage =
       imageUrl?: string;
     };
 
-const modeButtons = ["Normal", "DeepThink"];
-
 const demoSuggestions = [
   { title: "电影级青橙色调", subtitle: "Enhance neon lighting", accent: "gradient" },
   { title: "电影级胶片效果", subtitle: "Film-grade film effect", accent: "film" },
@@ -58,7 +56,11 @@ const demoSuggestions = [
   { title: "手动编辑", subtitle: "Custom Edit", accent: "pen" },
 ];
 
+const AGENT_NAME = "VINS Agent";
+const USER_NAME = "用户";
 const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
+const BACKEND_PLACEHOLDER_IMAGE =
+  "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=80";
 const TOPBAR_MESSAGE_ICON =
   "https://www.figma.com/api/mcp/asset/5b754da6-8524-4ebd-a517-c5c3445c6d22";
 const TOPBAR_BELL_ICON =
@@ -113,7 +115,7 @@ function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | nu
     {
       id: "assistant-welcome",
       role: "assistant",
-      label: "VOID INTELLIGENCE",
+      label: AGENT_NAME,
       text: "欢迎使用 VINS Agent V2。点击左上角“创建新绘画”即可进入场景绘画，随后可以通过自然语言继续进行多轮图像编辑。",
     },
   ];
@@ -123,9 +125,8 @@ function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | nu
       items.push({
         id: `${turn.turn_id}-user`,
         role: "user",
-        label: "OPERATOR",
+        label: USER_NAME,
         text: turn.user_cmd,
-        imageUrl: turn.input_img_url ?? currentImgUrl ?? undefined,
       });
     }
 
@@ -133,7 +134,7 @@ function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | nu
       items.push({
         id: `${turn.turn_id}-assistant`,
         role: "assistant",
-        label: "VOID INTELLIGENCE",
+        label: AGENT_NAME,
         text: turn.resolved_cmd,
         imageUrl: turn.output_img_url ?? undefined,
       });
@@ -143,14 +144,23 @@ function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | nu
   return items;
 }
 
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Home() {
   const [auth, setAuth] = useState<AuthState | null>(null);
-
-  const [imageUrl, setImageUrl] = useState(
-    "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=80",
-  );
   const [sessionId, setSessionId] = useState("");
   const [currentImageUrl, setCurrentImageUrl] = useState("");
+  const [uploadedImageUrl, setUploadedImageUrl] = useState("");
+  const [uploadedFileName, setUploadedFileName] = useState("");
+  const [historyTitle, setHistoryTitle] = useState("");
+  const [sessionCounter, setSessionCounter] = useState(0);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [dismissedRecommendationIds, setDismissedRecommendationIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
@@ -166,6 +176,8 @@ export default function Home() {
   const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(
     null,
   );
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingHistoryTitleRef = useRef("");
 
   useEffect(() => {
     let ignore = false;
@@ -203,6 +215,12 @@ export default function Home() {
   }, []);
 
   const visibleSuggestions = useMemo(() => {
+    const hasUserMessages = messages.some((message) => message.role === "user");
+
+    if (hasUserMessages) {
+      return [];
+    }
+
     if (sessionId && recommendations.length > 0) {
       return recommendations
         .filter((item) => !dismissedRecommendationIds.includes(item.id))
@@ -214,30 +232,54 @@ export default function Home() {
         }));
     }
 
+    if (
+      sessionId &&
+      uploadedImageUrl &&
+      !messages.some((message) => message.role === "user")
+    ) {
+      return demoSuggestions.slice(0, 3).map((item, index) => ({
+        ...item,
+        recId: `fallback-${index + 1}`,
+      }));
+    }
+
     return [];
-  }, [dismissedRecommendationIds, recommendations, sessionId]);
+  }, [dismissedRecommendationIds, messages, recommendations, sessionId, uploadedImageUrl]);
+
+  const hasUserMessages = useMemo(
+    () => messages.some((message) => message.role === "user"),
+    [messages],
+  );
 
   const showUploadedPreview = useMemo(
     () =>
       Boolean(
         sessionId &&
-          currentImageUrl &&
-          !messages.some((message) => message.role === "user"),
+          uploadedImageUrl &&
+          !hasUserMessages,
       ),
-    [currentImageUrl, messages, sessionId],
+    [hasUserMessages, sessionId, uploadedImageUrl],
   );
 
   const uploadedPreviewName = useMemo(() => {
-    if (!currentImageUrl) return "VOID_02.PNG";
-
-    try {
-      const pathname = new URL(currentImageUrl).pathname;
-      const filename = pathname.split("/").pop() || "VOID_02.PNG";
-      return decodeURIComponent(filename).toUpperCase();
-    } catch {
-      return "VOID_02.PNG";
+    if (uploadedFileName) {
+      return uploadedFileName.toUpperCase();
     }
-  }, [currentImageUrl]);
+
+    if (!uploadedImageUrl) return "VOID_02.PNG";
+
+    return "VOID_02.PNG";
+  }, [uploadedFileName, uploadedImageUrl]);
+
+  const showPendingAgentPreview = useMemo(
+    () =>
+      Boolean(
+        hasUserMessages &&
+          uploadedImageUrl &&
+          !messages.some((message) => message.role === "assistant" && message.imageUrl),
+      ),
+    [hasUserMessages, messages, uploadedImageUrl],
+  );
 
   async function refreshSession(id: string) {
     const response = await fetch(`/api/conversations/${id}`, { cache: "no-store" });
@@ -246,15 +288,21 @@ export default function Home() {
     }
 
     const payload = (await response.json()) as SessionResponse;
-    setCurrentImageUrl(payload.current_img_url);
+    setCurrentImageUrl(
+      payload.turns && payload.turns.length > 0
+        ? payload.current_img_url
+        : uploadedImageUrl || payload.current_img_url,
+    );
     setRecommendations(payload.recommendations ?? []);
     setDismissedRecommendationIds([]);
     setActiveTurnId(payload.active_turn_id ?? "");
-    setMessages(buildMessagesFromTurns(payload.turns ?? [], payload.current_img_url));
+    setMessages(
+      buildMessagesFromTurns(payload.turns ?? [], uploadedImageUrl || payload.current_img_url),
+    );
   }
 
-  async function handleQuickCreate() {
-    if (isCreating || !imageUrl) return;
+  async function handleQuickCreate(sourceImage: string, title: string) {
+    if (isCreating || !sourceImage) return;
 
     setRequestError("");
     setIsCreating(true);
@@ -263,7 +311,7 @@ export default function Home() {
       const response = await fetch("/api/conversations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ img_url: imageUrl }),
+        body: JSON.stringify({ img_url: BACKEND_PLACEHOLDER_IMAGE }),
       });
 
       const payload = (await response.json()) as SessionResponse & { error?: string };
@@ -273,15 +321,59 @@ export default function Home() {
       }
 
       setSessionId(payload.session_id);
-      setCurrentImageUrl(payload.current_img_url);
+      setHistoryTitle(title);
+      setCurrentImageUrl(sourceImage);
       setRecommendations(payload.recommendations ?? []);
       setDismissedRecommendationIds([]);
-      setMessages(buildMessagesFromTurns([], payload.current_img_url));
+      setMessages(buildMessagesFromTurns([], sourceImage));
       setStatusText("已进入场景绘画");
     } catch {
       setRequestError("创建会话请求失败，请稍后再试");
     } finally {
       setIsCreating(false);
+    }
+  }
+
+  function handleCreateEntry() {
+    if (isCreating) return;
+
+    const nextIndex = sessionCounter + 1;
+    const nextTitle = `图片处理#${nextIndex}`;
+    setSessionCounter(nextIndex);
+    setHistoryTitle(nextTitle);
+    pendingHistoryTitleRef.current = nextTitle;
+    fileInputRef.current?.click();
+  }
+
+  async function handleFileChange(event: { target: HTMLInputElement }) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      if (!sessionId) {
+        setHistoryTitle("");
+        pendingHistoryTitleRef.current = "";
+      }
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      setUploadedImageUrl(dataUrl);
+      setUploadedFileName(file.name);
+      setCurrentImageUrl(dataUrl);
+      setMessages(buildMessagesFromTurns([], dataUrl));
+      setRecommendations([]);
+      setDismissedRecommendationIds([]);
+      setSessionId("");
+      setActiveTurnId("");
+      setStatusText("图片上传成功，等待推荐指令");
+      await handleQuickCreate(
+        dataUrl,
+        pendingHistoryTitleRef.current || historyTitle || `图片处理#${sessionCounter || 1}`,
+      );
+    } catch {
+      setRequestError("读取图片失败，请重新上传");
+    } finally {
+      event.target.value = "";
     }
   }
 
@@ -328,13 +420,13 @@ export default function Home() {
         switch (event.type) {
           case "turn_start":
             setActiveTurnId(event.turn_id);
-            setStatusText(`Turn ${event.turn_id.slice(0, 8)} 开始执行`);
+            setStatusText("智能体正在分析图片并生成编辑方案");
             break;
           case "node_start":
-            setStatusText(`节点执行中: ${event.node}`);
+            setStatusText(`正在处理：${event.node}`);
             break;
           case "node_complete":
-            setStatusText(`节点已完成: ${event.node}`);
+            setStatusText(`已完成：${event.node}`);
             break;
           case "clarify":
             setMessages((prev) => [
@@ -342,7 +434,7 @@ export default function Home() {
               {
                 id: `clarify-${Date.now()}`,
                 role: "assistant",
-                label: "VOID INTELLIGENCE",
+                label: AGENT_NAME,
                 text: event.question,
               },
             ]);
@@ -393,9 +485,8 @@ export default function Home() {
         {
           id: `local-user-${Date.now()}`,
           role: "user",
-          label: "OPERATOR",
+          label: USER_NAME,
           text: command,
-          imageUrl: currentImageUrl || imageUrl,
         },
       ]);
     }
@@ -447,6 +538,14 @@ export default function Home() {
 
   return (
     <main className="dashboard">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden-file-input"
+        onChange={handleFileChange}
+      />
+
       <aside className="sidebar">
         <div className="sidebar-main">
           <div className="brand">
@@ -459,7 +558,7 @@ export default function Home() {
           <button
             type="button"
             className="primary-action"
-            onClick={() => void handleQuickCreate()}
+            onClick={handleCreateEntry}
             disabled={isCreating}
           >
             <img src={SIDEBAR_NEW_ICON} alt="" className="primary-action-icon" />
@@ -473,12 +572,12 @@ export default function Home() {
             </div>
 
             <div className="history-list">
-              {sessionId ? (
+              {historyTitle ? (
                 <button className="history-item is-active history-item-live">
                   <img src={SIDEBAR_CHAT_ICON} alt="" className="history-item-image" />
                   <span className="history-copy">
-                    <strong>当前会话</strong>
-                    <span>{sessionId.slice(0, 12)}...</span>
+                    <strong>{historyTitle || "图片处理#1"}</strong>
+                    <span>{sessionId ? uploadedPreviewName : "等待上传图片..."}</span>
                   </span>
                   <img src={SIDEBAR_DELETE_ICON} alt="" className="history-item-delete" />
                 </button>
@@ -532,7 +631,7 @@ export default function Home() {
             </nav>
           </div>
 
-          <div className="topbar-icons">
+          <div className="topbar-icons" aria-hidden="true">
             <button
               aria-label="messages"
               className="topbar-icon topbar-icon-chat"
@@ -550,7 +649,7 @@ export default function Home() {
 
         <div className="right-overlay" />
 
-        {!showUploadedPreview ? (
+        {!showUploadedPreview && !uploadedImageUrl ? (
           <section className="scene-banner">
             <div className="scene-banner-copy">
               <span className="panel-kicker">SCENE</span>
@@ -568,7 +667,7 @@ export default function Home() {
           <section className="uploaded-preview-zone">
             <article className="uploaded-preview-card">
               <div className="uploaded-preview-label">
-                <span>OPERATOR</span>
+                <span>{USER_NAME}</span>
                 <span className="uploaded-preview-dot" />
               </div>
               <div className="uploaded-preview-frame">
@@ -587,11 +686,47 @@ export default function Home() {
         ) : null}
 
         <section className="chat-stream">
+          {showPendingAgentPreview ? (
+            <article className="message">
+              <div className="message-label">
+                <span>{AGENT_NAME}</span>
+              </div>
+              <div className="assistant-response assistant-response-preview">
+                <div className="assistant-image-frame">
+                  <img
+                    src={uploadedImageUrl}
+                    alt="uploaded reference"
+                    className="assistant-image"
+                  />
+                </div>
+              </div>
+            </article>
+          ) : null}
+
+          {isStreaming ? (
+            <article className="message">
+              <div className="message-label">
+                <span className="message-dot" />
+                <span>{AGENT_NAME}</span>
+              </div>
+              <div className="progress-ticker" aria-live="polite">
+                <span className="progress-ticker-icon" />
+                <div className="progress-ticker-track">
+                  <div className="progress-ticker-copy">
+                    <span>{statusText}</span>
+                    <span>{statusText}</span>
+                    <span>{statusText}</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          ) : null}
+
           {messages.map((message) => {
             const isUser = message.role === "user";
             const isWelcomeMessage = message.id === "assistant-welcome";
 
-            if (isWelcomeMessage && showUploadedPreview) {
+            if (isWelcomeMessage && (showUploadedPreview || hasUserMessages)) {
               return null;
             }
 
@@ -618,18 +753,11 @@ export default function Home() {
                   <div className="user-stack">
                     {message.imageUrl ? (
                       <div className="reference-card">
-                        <div className="reference-preview">
-                          <img
-                            src={message.imageUrl}
-                            alt="reference"
-                            className="reference-image"
-                          />
-                          <div className="reference-meta">
-                            <span>REFERENCE</span>
-                            <strong>Source Image</strong>
-                            <small>{message.imageUrl.slice(0, 40)}...</small>
-                          </div>
-                        </div>
+                        <img
+                          src={message.imageUrl}
+                          alt="reference"
+                          className="reference-image"
+                        />
                       </div>
                     ) : null}
 
@@ -653,15 +781,24 @@ export default function Home() {
                       {message.text}
                     </div>
                     {message.imageUrl ? (
-                      <div className="assistant-image-frame">
-                        <img
-                          src={message.imageUrl}
-                          alt="generated result"
-                          className="assistant-image"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
+                        <div className="assistant-image-frame">
+                          <img
+                            src={message.imageUrl}
+                            alt="generated result"
+                            className="assistant-image"
+                          />
+                          <a
+                            href={message.imageUrl}
+                            download={uploadedPreviewName}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="assistant-image-download"
+                          >
+                            下载
+                          </a>
+                        </div>
+                      ) : null}
+                    </div>
                 )}
               </article>
             );
@@ -669,6 +806,9 @@ export default function Home() {
         </section>
 
         <section className={showUploadedPreview ? "command-zone command-zone-session" : "command-zone"}>
+          {showUploadedPreview && visibleSuggestions.length > 0 ? (
+            <div className="suggestions-heading">推荐处理指令</div>
+          ) : null}
           <div className={showUploadedPreview ? "suggestions suggestions-session" : "suggestions"}>
             {visibleSuggestions.map((item) => (
               <button
@@ -676,7 +816,10 @@ export default function Home() {
                 className="suggestion-card"
                 onClick={() =>
                   void handleSend({
-                    selectedRecId: item.recId || undefined,
+                    selectedRecId:
+                      item.recId && !item.recId.startsWith("fallback-")
+                        ? item.recId
+                        : undefined,
                     displayText: item.title,
                   })
                 }
