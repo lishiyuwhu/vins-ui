@@ -65,6 +65,16 @@ const TOPBAR_BELL_ICON =
   "https://www.figma.com/api/mcp/asset/c731baa3-48ad-4b47-ad88-797929916d7d";
 const SEND_BUTTON_ICON =
   "https://www.figma.com/api/mcp/asset/45e01f86-942b-45ad-8f48-c11803f0559e";
+const COMPOSER_ADD_ICON =
+  "https://www.figma.com/api/mcp/asset/98c1b035-fdbb-4fa6-bbbc-53bedbb60fe7";
+const COMPOSER_WEB_ICON =
+  "https://www.figma.com/api/mcp/asset/c2e80be1-97dd-4df7-beff-05a58da5bf14";
+const COMPOSER_CHECK_ICON =
+  "https://www.figma.com/api/mcp/asset/4a2bbb7b-0b17-4ade-885e-24cc17a2dd18";
+const COMPOSER_THINKING_ICON =
+  "https://www.figma.com/api/mcp/asset/09e5c101-49fb-45a2-b168-8ff4c52353bf";
+const COMPOSER_SEND_ICON =
+  "https://www.figma.com/api/mcp/asset/f4cd65f9-a4ce-494c-afbd-5c5f2c1e461c";
 const SIDEBAR_NEW_ICON =
   "https://www.figma.com/api/mcp/asset/4676ecbe-79a6-4947-977e-96196770c3d2";
 const SIDEBAR_HISTORY_ICON =
@@ -79,6 +89,8 @@ const SIDEBAR_STATUS_ICON =
   "https://www.figma.com/api/mcp/asset/09877dee-a9e3-42a6-a6f9-c973dd1c734c";
 const SIDEBAR_AVATAR =
   "https://www.figma.com/api/mcp/asset/0448d584-9c63-498d-97e3-6972835894bb";
+const SIDEBAR_EMPTY_ICON =
+  "https://www.figma.com/api/mcp/asset/127372b4-8f72-4c4e-8a4a-64c766f4f8af";
 
 function SuggestionIcon({ accent }: { accent: string }) {
   if (accent === "gradient") {
@@ -103,7 +115,6 @@ function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | nu
       role: "assistant",
       label: "VOID INTELLIGENCE",
       text: "欢迎使用 VINS Agent V2。点击左上角“创建新绘画”即可进入场景绘画，随后可以通过自然语言继续进行多轮图像编辑。",
-      imageUrl: currentImgUrl ?? undefined,
     },
   ];
 
@@ -205,6 +216,28 @@ export default function Home() {
 
     return [];
   }, [dismissedRecommendationIds, recommendations, sessionId]);
+
+  const showUploadedPreview = useMemo(
+    () =>
+      Boolean(
+        sessionId &&
+          currentImageUrl &&
+          !messages.some((message) => message.role === "user"),
+      ),
+    [currentImageUrl, messages, sessionId],
+  );
+
+  const uploadedPreviewName = useMemo(() => {
+    if (!currentImageUrl) return "VOID_02.PNG";
+
+    try {
+      const pathname = new URL(currentImageUrl).pathname;
+      const filename = pathname.split("/").pop() || "VOID_02.PNG";
+      return decodeURIComponent(filename).toUpperCase();
+    } catch {
+      return "VOID_02.PNG";
+    }
+  }, [currentImageUrl]);
 
   async function refreshSession(id: string) {
     const response = await fetch(`/api/conversations/${id}`, { cache: "no-store" });
@@ -451,8 +484,11 @@ export default function Home() {
                 </button>
               ) : (
                 <div className="history-empty">
-                  <span>点击上方“创建新绘画”后</span>
-                  <span>这里会显示新的历史对话</span>
+                  <img src={SIDEBAR_EMPTY_ICON} alt="" className="history-empty-icon" />
+                  <div className="history-empty-copy">
+                    <span>还没有对话记录</span>
+                    <span>点击上方按钮开始</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -514,22 +550,50 @@ export default function Home() {
 
         <div className="right-overlay" />
 
-        <section className="scene-banner">
-          <div className="scene-banner-copy">
-            <span className="panel-kicker">SCENE</span>
-            <strong>场景绘画</strong>
-            <span>{sessionId ? `Scene: ${sessionId.slice(0, 16)}...` : "点击左上角“创建新绘画”即可进入场景绘画"}</span>
-          </div>
-          <div className="scene-banner-status">
-            <span>{statusText}</span>
-            {requestError ? <em>{requestError}</em> : null}
-          </div>
-        </section>
+        {!showUploadedPreview ? (
+          <section className="scene-banner">
+            <div className="scene-banner-copy">
+              <span className="panel-kicker">SCENE</span>
+              <strong>场景绘画</strong>
+              <span>{sessionId ? `Scene: ${sessionId.slice(0, 16)}...` : "点击左上角“创建新绘画”即可进入场景绘画"}</span>
+            </div>
+            <div className="scene-banner-status">
+              <span>{statusText}</span>
+              {requestError ? <em>{requestError}</em> : null}
+            </div>
+          </section>
+        ) : null}
+
+        {showUploadedPreview ? (
+          <section className="uploaded-preview-zone">
+            <article className="uploaded-preview-card">
+              <div className="uploaded-preview-label">
+                <span>OPERATOR</span>
+                <span className="uploaded-preview-dot" />
+              </div>
+              <div className="uploaded-preview-frame">
+                <button className="uploaded-preview-close" type="button" aria-label="remove image">
+                  ×
+                </button>
+                <img
+                  src={currentImageUrl}
+                  alt="uploaded reference"
+                  className="uploaded-preview-image"
+                />
+                <span className="uploaded-preview-name">{uploadedPreviewName}</span>
+              </div>
+            </article>
+          </section>
+        ) : null}
 
         <section className="chat-stream">
           {messages.map((message) => {
             const isUser = message.role === "user";
             const isWelcomeMessage = message.id === "assistant-welcome";
+
+            if (isWelcomeMessage && showUploadedPreview) {
+              return null;
+            }
 
             return (
               <article
@@ -539,14 +603,16 @@ export default function Home() {
                     ? "message message-user"
                     : isWelcomeMessage
                       ? "message message-welcome"
-                      : "message"
+                    : "message"
                 }
               >
-                <div className={isUser ? "message-label message-label-user" : "message-label"}>
-                  {!isUser ? <span className="message-dot" /> : null}
-                  <span>{message.label}</span>
-                  {isUser ? <span className="message-dot user-dot" /> : null}
-                </div>
+                {!isWelcomeMessage ? (
+                  <div className={isUser ? "message-label message-label-user" : "message-label"}>
+                    {!isUser ? <span className="message-dot" /> : null}
+                    <span>{message.label}</span>
+                    {isUser ? <span className="message-dot user-dot" /> : null}
+                  </div>
+                ) : null}
 
                 {isUser ? (
                   <div className="user-stack">
@@ -577,7 +643,15 @@ export default function Home() {
                         : "assistant-response"
                     }
                   >
-                    <div className="assistant-copy">{message.text}</div>
+                    <div
+                      className={
+                        isWelcomeMessage
+                          ? "assistant-copy assistant-copy-welcome"
+                          : "assistant-copy"
+                      }
+                    >
+                      {message.text}
+                    </div>
                     {message.imageUrl ? (
                       <div className="assistant-image-frame">
                         <img
@@ -594,8 +668,8 @@ export default function Home() {
           })}
         </section>
 
-        <section className="command-zone">
-          <div className="suggestions">
+        <section className={showUploadedPreview ? "command-zone command-zone-session" : "command-zone"}>
+          <div className={showUploadedPreview ? "suggestions suggestions-session" : "suggestions"}>
             {visibleSuggestions.map((item) => (
               <button
                 key={`${item.title}-${item.recId}`}
@@ -619,58 +693,59 @@ export default function Home() {
 
           <div className="composer-glow" />
           <div className="composer">
-            <div className="composer-input">
-              {sessionId ? "输入编辑指令，系统会通过 SSE 实时返回执行进度..." : "点击左上角“创建新绘画”后即可开始编辑..."}
+            <div className="composer-input-shell">
+              <input
+                className="composer-textarea"
+                value={userCmd}
+                onChange={(event) => setUserCmd(event.target.value)}
+                placeholder="Ask anything..."
+                disabled={!sessionId || isStreaming}
+              />
             </div>
 
             <div className="composer-toolbar">
               <div className="composer-left">
-                <button className="add-button" aria-label="refresh session" onClick={() => void (sessionId ? refreshSession(sessionId) : Promise.resolve())}>
-                  +
+                <button
+                  className="add-button"
+                  aria-label="refresh session"
+                  onClick={() => void (sessionId ? refreshSession(sessionId) : Promise.resolve())}
+                >
+                  <img src={COMPOSER_ADD_ICON} alt="" className="add-button-icon" />
                 </button>
 
                 <div className="mode-row">
-                  {modeButtons.map((mode) => (
-                    <button key={mode} className="mode-button" type="button">
-                      <span className="mode-icon" />
-                      <span>{mode}</span>
-                      <span className="mode-caret" />
-                    </button>
-                  ))}
+                  <button className="mode-button" type="button">
+                    <img src={COMPOSER_WEB_ICON} alt="" className="mode-icon-image mode-icon-web" />
+                    <span>web</span>
+                    <img src={COMPOSER_CHECK_ICON} alt="" className="mode-check-icon" />
+                  </button>
+                  <button className="mode-button" type="button">
+                    <img
+                      src={COMPOSER_THINKING_ICON}
+                      alt=""
+                      className="mode-icon-image mode-icon-thinking"
+                    />
+                    <span>Thinking</span>
+                    <img src={COMPOSER_CHECK_ICON} alt="" className="mode-check-icon" />
+                  </button>
                 </div>
               </div>
 
               <div className="composer-right">
-                <input
-                  className="command-input"
-                  value={userCmd}
-                  onChange={(event) => setUserCmd(event.target.value)}
-                  placeholder="例如：增强霓虹感，保留主体构图"
-                  disabled={!sessionId || isStreaming}
-                />
-
-                {activeTurnId ? (
-                  <button className="voice-button" type="button" onClick={handleCancel}>
-                    <span className="voice-icon" />
-                    Cancel
-                  </button>
-                ) : (
-                  <button className="voice-button" type="button">
-                    <span className="voice-icon" />
-                    Voice
-                  </button>
-                )}
-
                 <button
                   className="send-button"
                   aria-label="send"
                   type="button"
-                  onClick={() => void handleSend()}
+                  onClick={() => void (activeTurnId ? handleCancel() : handleSend())}
                   disabled={!sessionId || isStreaming}
                 >
                   <span className="send-button-shadow" />
                   <span className="send-icon-wrap">
-                    <img src={SEND_BUTTON_ICON} alt="" className="send-icon-image" />
+                    <img
+                      src={activeTurnId ? SEND_BUTTON_ICON : COMPOSER_SEND_ICON}
+                      alt=""
+                      className="send-icon-image"
+                    />
                   </span>
                 </button>
               </div>
