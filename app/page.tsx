@@ -93,6 +93,7 @@ const SIDEBAR_AVATAR =
   "https://www.figma.com/api/mcp/asset/0448d584-9c63-498d-97e3-6972835894bb";
 const SIDEBAR_EMPTY_ICON =
   "https://www.figma.com/api/mcp/asset/127372b4-8f72-4c4e-8a4a-64c766f4f8af";
+const HIDE_ALL_RECOMMENDATIONS_KEY = "__all__";
 
 function SuggestionIcon({ accent }: { accent: string }) {
   if (accent === "gradient") {
@@ -217,7 +218,12 @@ export default function Home() {
   const visibleSuggestions = useMemo(() => {
     const hasUserMessages = messages.some((message) => message.role === "user");
 
-    if (hasUserMessages) {
+    if (
+      hasUserMessages ||
+      dismissedRecommendationIds.length > 0 ||
+      dismissedRecommendationIds.includes(HIDE_ALL_RECOMMENDATIONS_KEY) ||
+      isStreaming
+    ) {
       return [];
     }
 
@@ -244,7 +250,14 @@ export default function Home() {
     }
 
     return [];
-  }, [dismissedRecommendationIds, messages, recommendations, sessionId, uploadedImageUrl]);
+  }, [
+    dismissedRecommendationIds,
+    isStreaming,
+    messages,
+    recommendations,
+    sessionId,
+    uploadedImageUrl,
+  ]);
 
   const hasUserMessages = useMemo(
     () => messages.some((message) => message.role === "user"),
@@ -294,7 +307,9 @@ export default function Home() {
         : uploadedImageUrl || payload.current_img_url,
     );
     setRecommendations(payload.recommendations ?? []);
-    setDismissedRecommendationIds([]);
+    setDismissedRecommendationIds(
+      payload.turns && payload.turns.length > 0 ? [HIDE_ALL_RECOMMENDATIONS_KEY] : [],
+    );
     setActiveTurnId(payload.active_turn_id ?? "");
     setMessages(
       buildMessagesFromTurns(payload.turns ?? [], uploadedImageUrl || payload.current_img_url),
@@ -473,7 +488,17 @@ export default function Home() {
     setIsStreaming(true);
     setRequestError("");
 
-    if (selectedRecId) {
+    if (options?.displayText) {
+      setDismissedRecommendationIds((prev) =>
+        prev.includes(HIDE_ALL_RECOMMENDATIONS_KEY)
+          ? prev
+          : [
+              HIDE_ALL_RECOMMENDATIONS_KEY,
+              ...prev,
+              ...(selectedRecId ? [selectedRecId] : []),
+            ],
+      );
+    } else if (selectedRecId) {
       setDismissedRecommendationIds((prev) =>
         prev.includes(selectedRecId) ? prev : [...prev, selectedRecId],
       );
@@ -725,6 +750,10 @@ export default function Home() {
           {messages.map((message) => {
             const isUser = message.role === "user";
             const isWelcomeMessage = message.id === "assistant-welcome";
+            const hideAssistantText =
+              !isUser &&
+              Boolean(message.imageUrl) &&
+              /^Apply the recommended style from rec_/i.test(message.text);
 
             if (isWelcomeMessage && (showUploadedPreview || hasUserMessages)) {
               return null;
@@ -771,15 +800,17 @@ export default function Home() {
                         : "assistant-response"
                     }
                   >
-                    <div
-                      className={
-                        isWelcomeMessage
-                          ? "assistant-copy assistant-copy-welcome"
-                          : "assistant-copy"
-                      }
-                    >
-                      {message.text}
-                    </div>
+                    {!hideAssistantText ? (
+                      <div
+                        className={
+                          isWelcomeMessage
+                            ? "assistant-copy assistant-copy-welcome"
+                            : "assistant-copy"
+                        }
+                      >
+                        {message.text}
+                      </div>
+                    ) : null}
                     {message.imageUrl ? (
                         <div className="assistant-image-frame">
                           <img
@@ -806,33 +837,37 @@ export default function Home() {
         </section>
 
         <section className={showUploadedPreview ? "command-zone command-zone-session" : "command-zone"}>
-          {showUploadedPreview && visibleSuggestions.length > 0 ? (
-            <div className="suggestions-heading">推荐处理指令</div>
+          {visibleSuggestions.length > 0 ? (
+            <>
+              {showUploadedPreview ? (
+                <div className="suggestions-heading">推荐处理指令</div>
+              ) : null}
+              <div className={showUploadedPreview ? "suggestions suggestions-session" : "suggestions"}>
+                {visibleSuggestions.map((item) => (
+                  <button
+                    key={`${item.title}-${item.recId}`}
+                    className="suggestion-card"
+                    onClick={() =>
+                      void handleSend({
+                        selectedRecId:
+                          item.recId && !item.recId.startsWith("fallback-")
+                            ? item.recId
+                            : undefined,
+                        displayText: item.title,
+                      })
+                    }
+                    disabled={!sessionId || isStreaming}
+                  >
+                    <div className="suggestion-title">
+                      <SuggestionIcon accent={item.accent} />
+                      <span>{item.title}</span>
+                    </div>
+                    <div className="suggestion-subtitle">{item.subtitle}</div>
+                  </button>
+                ))}
+              </div>
+            </>
           ) : null}
-          <div className={showUploadedPreview ? "suggestions suggestions-session" : "suggestions"}>
-            {visibleSuggestions.map((item) => (
-              <button
-                key={`${item.title}-${item.recId}`}
-                className="suggestion-card"
-                onClick={() =>
-                  void handleSend({
-                    selectedRecId:
-                      item.recId && !item.recId.startsWith("fallback-")
-                        ? item.recId
-                        : undefined,
-                    displayText: item.title,
-                  })
-                }
-                disabled={!sessionId || isStreaming}
-              >
-                <div className="suggestion-title">
-                  <SuggestionIcon accent={item.accent} />
-                  <span>{item.title}</span>
-                </div>
-                <div className="suggestion-subtitle">{item.subtitle}</div>
-              </button>
-            ))}
-          </div>
 
           <div className="composer-glow" />
           <div className="composer">
@@ -841,7 +876,7 @@ export default function Home() {
                 className="composer-textarea"
                 value={userCmd}
                 onChange={(event) => setUserCmd(event.target.value)}
-                placeholder="Ask anything..."
+                placeholder={sessionId ? "输入指令继续编辑..." : "请先创建新对话..."}
                 disabled={!sessionId || isStreaming}
               />
             </div>
