@@ -15,7 +15,7 @@ export async function POST(
     const body = await request.text();
 
     const response = await fetch(
-      `${getBackendBaseUrl()}/api/v1/conversations/${sessionId}/turns`,
+      `${getBackendBaseUrl()}/conversations/${sessionId}/turns`,
       {
         method: "POST",
         headers: {

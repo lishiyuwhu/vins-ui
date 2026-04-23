@@ -15,7 +15,7 @@ export async function POST(
 
     const { sessionId, turnId } = await params;
     const response = await proxyJson(
-      `/api/v1/conversations/${sessionId}/turns/${turnId}/cancel`,
+      `/conversations/${sessionId}/turns/${turnId}/cancel`,
       {
         method: "POST",
         apiKey,

@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => null);
 
-    const response = await proxyJson("/api/v1/conversations", {
+    const response = await proxyJson("/conversations", {
       method: "POST",
       apiKey,
       headers: { "Content-Type": "application/json" },
