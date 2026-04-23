@@ -21,8 +21,11 @@ type TurnRecord = {
 
 type SessionResponse = {
   session_id: string;
-  current_img_url: string;
+  original_img_url?: string | null;
+  current_img_url?: string | null;
   recommendations: Recommendation[];
+  recommendation_status?: string | null;
+  recommendation_error?: string | null;
   turns?: TurnRecord[];
   active_turn_id?: string | null;
 };
@@ -30,7 +33,7 @@ type SessionResponse = {
 type AuthState = {
   ok: boolean;
   key_hint?: string;
-  internal?: boolean;
+  error?: string;
 };
 
 type ChatMessage =
@@ -49,18 +52,30 @@ type ChatMessage =
       imageUrl?: string;
     };
 
-const demoSuggestions = [
-  { title: "电影级青橙色调", subtitle: "Enhance neon lighting", accent: "gradient" },
-  { title: "电影级胶片效果", subtitle: "Film-grade film effect", accent: "film" },
-  { title: "转换为 3D 效果", subtitle: "Convert to 3D render", accent: "cube" },
-  { title: "手动编辑", subtitle: "Custom Edit", accent: "pen" },
-];
+type LocalConversation = {
+  id: string;
+  title: string;
+  sessionId: string;
+  originalImageUrl: string;
+  currentImageUrl: string;
+  uploadedImageUrl: string;
+  uploadedFileName: string;
+  recommendations: Recommendation[];
+  recommendationStatus: string;
+  dismissedRecommendationIds: string[];
+  messages: ChatMessage[];
+  userCmd: string;
+  activeTurnId: string;
+  statusText: string;
+  requestError: string;
+  externalEnabled: boolean;
+  thinkingEnabled: boolean;
+};
 
 const AGENT_NAME = "VINS Agent";
 const USER_NAME = "用户";
 const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
-const BACKEND_PLACEHOLDER_IMAGE =
-  "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1400&q=80";
+const TEST_API_KEY = "key-mockui-yZaAbBcCdDeEfFgG";
 const TOPBAR_MESSAGE_ICON =
   "https://www.figma.com/api/mcp/asset/5b754da6-8524-4ebd-a517-c5c3445c6d22";
 const TOPBAR_BELL_ICON =
@@ -71,8 +86,6 @@ const COMPOSER_ADD_ICON =
   "https://www.figma.com/api/mcp/asset/98c1b035-fdbb-4fa6-bbbc-53bedbb60fe7";
 const COMPOSER_WEB_ICON =
   "https://www.figma.com/api/mcp/asset/c2e80be1-97dd-4df7-beff-05a58da5bf14";
-const COMPOSER_CHECK_ICON =
-  "https://www.figma.com/api/mcp/asset/4a2bbb7b-0b17-4ade-885e-24cc17a2dd18";
 const COMPOSER_THINKING_ICON =
   "https://www.figma.com/api/mcp/asset/09e5c101-49fb-45a2-b168-8ff4c52353bf";
 const COMPOSER_SEND_ICON =
@@ -95,31 +108,17 @@ const SIDEBAR_EMPTY_ICON =
   "https://www.figma.com/api/mcp/asset/127372b4-8f72-4c4e-8a4a-64c766f4f8af";
 const HIDE_ALL_RECOMMENDATIONS_KEY = "__all__";
 
-function SuggestionIcon({ accent }: { accent: string }) {
-  if (accent === "gradient") {
-    return <span className="suggestion-icon suggestion-icon-gradient" />;
-  }
-
-  if (accent === "film") {
-    return <span className="suggestion-icon suggestion-icon-film" />;
-  }
-
-  if (accent === "cube") {
-    return <span className="suggestion-icon suggestion-icon-cube" />;
-  }
-
-  return <span className="suggestion-icon suggestion-icon-pen">✍</span>;
-}
-
 function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | null) {
   const items: ChatMessage[] = [
     {
       id: "assistant-welcome",
       role: "assistant",
       label: AGENT_NAME,
-      text: "欢迎使用 VINS Agent V2。点击左上角“创建新绘画”即可进入场景绘画，随后可以通过自然语言继续进行多轮图像编辑。",
+      text: "欢迎使用 VINS Agent。复制粘贴或者点击加号上传图片，随后可以通过自然语言继续进行多轮图像编辑。",
     },
   ];
+
+  let fallbackInputImageUrl = currentImgUrl ?? "";
 
   turns.forEach((turn) => {
     if (turn.user_cmd) {
@@ -128,17 +127,22 @@ function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | nu
         role: "user",
         label: USER_NAME,
         text: turn.user_cmd,
+        imageUrl: turn.input_img_url || fallbackInputImageUrl || undefined,
       });
     }
 
-    if (turn.resolved_cmd) {
+    if (turn.resolved_cmd || turn.output_img_url) {
       items.push({
         id: `${turn.turn_id}-assistant`,
         role: "assistant",
         label: AGENT_NAME,
-        text: turn.resolved_cmd,
+        text: turn.resolved_cmd || "已生成编辑结果",
         imageUrl: turn.output_img_url ?? undefined,
       });
+    }
+
+    if (turn.output_img_url) {
+      fallbackInputImageUrl = turn.output_img_url;
     }
   });
 
@@ -156,29 +160,75 @@ function readFileAsDataUrl(file: File) {
 
 export default function Home() {
   const [auth, setAuth] = useState<AuthState | null>(null);
-  const [sessionId, setSessionId] = useState("");
-  const [currentImageUrl, setCurrentImageUrl] = useState("");
-  const [uploadedImageUrl, setUploadedImageUrl] = useState("");
-  const [uploadedFileName, setUploadedFileName] = useState("");
-  const [historyTitle, setHistoryTitle] = useState("");
+  const [apiKeyInput, setApiKeyInput] = useState(TEST_API_KEY);
+  const [authRequestError, setAuthRequestError] = useState("");
+  const [conversations, setConversations] = useState<LocalConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState("");
   const [sessionCounter, setSessionCounter] = useState(0);
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-  const [dismissedRecommendationIds, setDismissedRecommendationIds] = useState<string[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    buildMessagesFromTurns([], ""),
-  );
-  const [userCmd, setUserCmd] = useState("");
-  const [statusText, setStatusText] = useState("准备进入场景绘画");
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [activeTurnId, setActiveTurnId] = useState("");
-  const [requestError, setRequestError] = useState("");
+  const [previewImageUrl, setPreviewImageUrl] = useState("");
 
   const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(
     null,
   );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const pendingHistoryTitleRef = useRef("");
+  const initializedSessionRef = useRef(false);
+  const activeConversation = useMemo(
+    () => conversations.find((item) => item.id === activeConversationId) ?? null,
+    [activeConversationId, conversations],
+  );
+  const sessionId = activeConversation?.sessionId ?? "";
+  const originalImageUrl = activeConversation?.originalImageUrl ?? "";
+  const currentImageUrl = activeConversation?.currentImageUrl ?? "";
+  const uploadedImageUrl = activeConversation?.uploadedImageUrl ?? "";
+  const uploadedFileName = activeConversation?.uploadedFileName ?? "";
+  const recommendations = activeConversation?.recommendations ?? [];
+  const recommendationStatus = activeConversation?.recommendationStatus ?? "idle";
+  const dismissedRecommendationIds = activeConversation?.dismissedRecommendationIds ?? [];
+  const messages = activeConversation?.messages ?? buildMessagesFromTurns([], "");
+  const userCmd = activeConversation?.userCmd ?? "";
+  const externalEnabled = activeConversation?.externalEnabled ?? false;
+  const thinkingEnabled = activeConversation?.thinkingEnabled ?? false;
+  const statusText = activeConversation?.statusText ?? "准备进入场景绘画";
+  const activeTurnId = activeConversation?.activeTurnId ?? "";
+  const requestError = activeConversation?.requestError ?? "";
+  const hasBoundImage = Boolean(originalImageUrl);
+  const sortedConversations = useMemo(
+    () => [...conversations].reverse(),
+    [conversations],
+  );
+
+  function updateConversation(
+    id: string,
+    updater: (conversation: LocalConversation) => LocalConversation,
+  ) {
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === id ? updater(conversation) : conversation,
+      ),
+    );
+  }
+
+  function updateActiveConversation(
+    updater: (conversation: LocalConversation) => LocalConversation,
+  ) {
+    if (!activeConversationId) return;
+    updateConversation(activeConversationId, updater);
+  }
+
+  function updateConversationBySessionId(
+    targetSessionId: string,
+    updater: (conversation: LocalConversation) => LocalConversation,
+  ) {
+    if (!targetSessionId) return;
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.sessionId === targetSessionId ? updater(conversation) : conversation,
+      ),
+    );
+  }
 
   useEffect(() => {
     let ignore = false;
@@ -189,8 +239,7 @@ export default function Home() {
 
         if (!response.ok) {
           if (!ignore) {
-            setAuth({ ok: true, internal: true });
-            setStatusText("准备进入场景绘画");
+            setAuth({ ok: false, error: "请先输入 API Key 登录" });
           }
           return;
         }
@@ -198,12 +247,10 @@ export default function Home() {
         const payload = (await response.json()) as AuthState;
         if (!ignore) {
           setAuth(payload);
-          setStatusText("已接入场景绘画");
         }
       } catch {
         if (!ignore) {
-          setAuth({ ok: true, internal: true });
-          setStatusText("已接入场景绘画");
+          setAuth({ ok: false, error: "登录状态检查失败" });
         }
       }
     }
@@ -214,6 +261,100 @@ export default function Home() {
       ignore = true;
     };
   }, []);
+
+  async function createEmptySession(nextTitle: string, nextIndex: number) {
+    if (isCreating) return;
+
+    setIsCreating(true);
+
+    try {
+      const response = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      const payload = (await response.json()) as SessionResponse & { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error || "创建会话失败");
+      }
+
+      setSessionCounter(nextIndex);
+      const localId = `local-${payload.session_id}`;
+      const nextConversation: LocalConversation = {
+        id: localId,
+        title: nextTitle,
+        sessionId: payload.session_id,
+        originalImageUrl: "",
+        currentImageUrl: "",
+        uploadedImageUrl: "",
+        uploadedFileName: "",
+        recommendations: payload.recommendations ?? [],
+        recommendationStatus: payload.recommendation_status ?? "idle",
+        dismissedRecommendationIds: [],
+        messages: buildMessagesFromTurns([], ""),
+        userCmd: "",
+        activeTurnId: "",
+        statusText: "空绘画已创建，等待上传图片",
+        requestError: "",
+        externalEnabled: false,
+        thinkingEnabled: false,
+      };
+      setConversations((prev) => [...prev, nextConversation]);
+      setActiveConversationId(localId);
+    } catch (error) {
+      const localId = `failed-${Date.now()}`;
+      setConversations((prev) => [
+        ...prev,
+        {
+          id: localId,
+          title: nextTitle,
+          sessionId: "",
+          originalImageUrl: "",
+          currentImageUrl: "",
+          uploadedImageUrl: "",
+          uploadedFileName: "",
+          recommendations: [],
+          recommendationStatus: "idle",
+          dismissedRecommendationIds: [],
+          messages: buildMessagesFromTurns([], ""),
+          userCmd: "",
+          activeTurnId: "",
+          statusText: "创建空绘画失败",
+          requestError: error instanceof Error ? error.message : "创建会话失败",
+          externalEnabled: false,
+          thinkingEnabled: false,
+        },
+      ]);
+      setActiveConversationId(localId);
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!auth?.ok || initializedSessionRef.current) {
+      return;
+    }
+
+    initializedSessionRef.current = true;
+    void createEmptySession("图片处理 #1", 1);
+  }, [auth?.ok]);
+
+  useEffect(() => {
+    if (!previewImageUrl) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPreviewImageUrl("");
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [previewImageUrl]);
 
   const visibleSuggestions = useMemo(() => {
     const hasUserMessages = messages.some((message) => message.role === "user");
@@ -229,24 +370,14 @@ export default function Home() {
 
     if (sessionId && recommendations.length > 0) {
       return recommendations
+        .filter((item) => Boolean(item.display_text_zh?.trim()))
+        .slice(0, 3)
         .filter((item) => !dismissedRecommendationIds.includes(item.id))
         .map((item, index) => ({
+          index: index + 1,
           title: item.display_text_zh || `推荐 ${index + 1}`,
-          subtitle: item.prompt,
-          accent: demoSuggestions[index % demoSuggestions.length]?.accent ?? "gradient",
           recId: item.id,
         }));
-    }
-
-    if (
-      sessionId &&
-      uploadedImageUrl &&
-      !messages.some((message) => message.role === "user")
-    ) {
-      return demoSuggestions.slice(0, 3).map((item, index) => ({
-        ...item,
-        recId: `fallback-${index + 1}`,
-      }));
     }
 
     return [];
@@ -301,92 +432,190 @@ export default function Home() {
     }
 
     const payload = (await response.json()) as SessionResponse;
-    setCurrentImageUrl(
-      payload.turns && payload.turns.length > 0
-        ? payload.current_img_url
-        : uploadedImageUrl || payload.current_img_url,
-    );
-    setRecommendations(payload.recommendations ?? []);
-    setDismissedRecommendationIds(
-      payload.turns && payload.turns.length > 0 ? [HIDE_ALL_RECOMMENDATIONS_KEY] : [],
-    );
-    setActiveTurnId(payload.active_turn_id ?? "");
-    setMessages(
-      buildMessagesFromTurns(payload.turns ?? [], uploadedImageUrl || payload.current_img_url),
-    );
+    updateConversationBySessionId(id, (conversation) => ({
+      ...conversation,
+      originalImageUrl: payload.original_img_url ?? "",
+      currentImageUrl:
+        payload.turns && payload.turns.length > 0
+          ? payload.current_img_url ?? ""
+          : conversation.uploadedImageUrl || payload.current_img_url || "",
+      recommendations: payload.recommendations ?? [],
+      recommendationStatus: payload.recommendation_status ?? "idle",
+      dismissedRecommendationIds:
+        payload.turns && payload.turns.length > 0 ? [HIDE_ALL_RECOMMENDATIONS_KEY] : [],
+      activeTurnId: payload.active_turn_id ?? "",
+      messages: buildMessagesFromTurns(
+        payload.turns ?? [],
+        conversation.uploadedImageUrl || payload.current_img_url,
+      ),
+    }));
   }
 
-  async function handleQuickCreate(sourceImage: string, title: string) {
-    if (isCreating || !sourceImage) return;
+  async function syncAuthState() {
+    const response = await fetch("/api/auth/me", { cache: "no-store" });
+    const payload = (await response.json().catch(() => ({ ok: false }))) as AuthState;
 
-    setRequestError("");
-    setIsCreating(true);
+    if (!response.ok) {
+      throw new Error(payload.error || "登录失败");
+    }
+
+    setAuth(payload);
+    setAuthRequestError("");
+    initializedSessionRef.current = false;
+  }
+
+  async function handleLogin() {
+    if (!apiKeyInput || isAuthenticating) return;
+
+    setIsAuthenticating(true);
+    setAuthRequestError("");
 
     try {
-      const response = await fetch("/api/conversations", {
+      const response = await fetch("/api/auth/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ img_url: BACKEND_PLACEHOLDER_IMAGE }),
+        body: JSON.stringify({ api_key: apiKeyInput }),
       });
 
-      const payload = (await response.json()) as SessionResponse & { error?: string };
+      const payload = await response.json().catch(() => ({ error: "登录失败" }));
       if (!response.ok) {
-        setRequestError(payload.error || "创建会话失败");
-        return;
+        throw new Error(payload.error || "登录失败");
       }
 
-      setSessionId(payload.session_id);
-      setHistoryTitle(title);
-      setCurrentImageUrl(sourceImage);
-      setRecommendations(payload.recommendations ?? []);
-      setDismissedRecommendationIds([]);
-      setMessages(buildMessagesFromTurns([], sourceImage));
-      setStatusText("已进入场景绘画");
-    } catch {
-      setRequestError("创建会话请求失败，请稍后再试");
+      await syncAuthState();
+    } catch (error) {
+      setAuth({ ok: false, error: "请先输入 API Key 登录" });
+      setAuthRequestError(error instanceof Error ? error.message : "登录失败");
     } finally {
-      setIsCreating(false);
+      setIsAuthenticating(false);
     }
   }
 
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    initializedSessionRef.current = false;
+    setAuth({ ok: false, error: "请先输入 API Key 登录" });
+    setConversations([]);
+    setActiveConversationId("");
+    setSessionCounter(0);
+  }
+
   function handleCreateEntry() {
-    if (isCreating) return;
+    if (isCreating || isStreaming || !auth?.ok) return;
 
     const nextIndex = sessionCounter + 1;
-    const nextTitle = `图片处理#${nextIndex}`;
-    setSessionCounter(nextIndex);
-    setHistoryTitle(nextTitle);
-    pendingHistoryTitleRef.current = nextTitle;
+    const nextTitle = `图片处理 #${nextIndex}`;
+    void createEmptySession(nextTitle, nextIndex);
+  }
+
+  function handleSelectImage() {
+    if (!auth?.ok) {
+      updateActiveConversation((conversation) => ({
+        ...conversation,
+        requestError: "请先登录",
+      }));
+      return;
+    }
+
+    if (!sessionId) {
+      updateActiveConversation((conversation) => ({
+        ...conversation,
+        requestError: "空绘画还未创建完成，请稍后再试",
+      }));
+      return;
+    }
+
     fileInputRef.current?.click();
   }
 
   async function handleFileChange(event: { target: HTMLInputElement }) {
     const file = event.target.files?.[0];
     if (!file) {
-      if (!sessionId) {
-        setHistoryTitle("");
-        pendingHistoryTitleRef.current = "";
-      }
       return;
     }
 
+    const targetSessionId = sessionId;
+
     try {
+      if (!targetSessionId) {
+        throw new Error("当前没有可用的绘画会话");
+      }
+
+      updateActiveConversation((conversation) => ({
+        ...conversation,
+        requestError: "",
+        statusText: "正在上传图片",
+      }));
       const dataUrl = await readFileAsDataUrl(file);
-      setUploadedImageUrl(dataUrl);
-      setUploadedFileName(file.name);
-      setCurrentImageUrl(dataUrl);
-      setMessages(buildMessagesFromTurns([], dataUrl));
-      setRecommendations([]);
-      setDismissedRecommendationIds([]);
-      setSessionId("");
-      setActiveTurnId("");
-      setStatusText("图片上传成功，等待推荐指令");
-      await handleQuickCreate(
-        dataUrl,
-        pendingHistoryTitleRef.current || historyTitle || `图片处理#${sessionCounter || 1}`,
-      );
-    } catch {
-      setRequestError("读取图片失败，请重新上传");
+      const uploadResponse = await fetch("/api/upload-image-base64", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_base64: dataUrl }),
+      });
+      const uploadPayload = (await uploadResponse.json().catch(() => ({ error: "上传失败" }))) as {
+        img_url?: string;
+        error?: string;
+      };
+
+      if (!uploadResponse.ok || !uploadPayload.img_url) {
+        throw new Error(uploadPayload.error || "图片上传失败");
+      }
+
+      updateActiveConversation((conversation) => ({
+        ...conversation,
+        uploadedImageUrl: dataUrl,
+        uploadedFileName: file.name,
+        currentImageUrl: dataUrl,
+        originalImageUrl: uploadPayload.img_url ?? "",
+        messages: buildMessagesFromTurns([], dataUrl),
+        recommendations: [],
+        recommendationStatus: "running",
+        dismissedRecommendationIds: [],
+        activeTurnId: "",
+        statusText: "正在绑定图片",
+      }));
+
+      const bindResponse = await fetch(`/api/conversations/${targetSessionId}/image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ img_url: uploadPayload.img_url }),
+      });
+      const bindPayload = await bindResponse.json().catch(() => ({ error: "绑定图片失败" }));
+      if (!bindResponse.ok) {
+        throw new Error(bindPayload.error || "绑定图片失败");
+      }
+
+      updateConversationBySessionId(targetSessionId, (conversation) => ({
+        ...conversation,
+        statusText: "正在生成推荐指令",
+      }));
+      const recommendResponse = await fetch(`/api/conversations/${targetSessionId}/recommend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ img_url: uploadPayload.img_url }),
+      });
+      if (!recommendResponse.ok) {
+        const recommendPayload = await recommendResponse
+          .json()
+          .catch(() => ({ error: "推荐任务启动失败" }));
+        updateActiveConversation((conversation) => ({
+          ...conversation,
+          recommendationStatus: "failed",
+          requestError: recommendPayload.error || "推荐任务启动失败",
+        }));
+      }
+
+      await refreshSession(targetSessionId);
+      updateConversationBySessionId(targetSessionId, (conversation) => ({
+        ...conversation,
+        statusText: "图片已绑定，可直接输入指令或等待推荐",
+      }));
+    } catch (error) {
+      updateActiveConversation((conversation) => ({
+        ...conversation,
+        requestError: error instanceof Error ? error.message : "读取图片失败，请重新上传",
+        statusText: "图片处理准备失败",
+      }));
     } finally {
       event.target.value = "";
     }
@@ -419,7 +648,10 @@ export default function Home() {
 
         const payload = line.slice(6).trim();
         if (payload === "[DONE]") {
-          setStatusText("本轮完成");
+          updateConversationBySessionId(session, (conversation) => ({
+            ...conversation,
+            statusText: "本轮完成",
+          }));
           continue;
         }
 
@@ -434,40 +666,64 @@ export default function Home() {
 
         switch (event.type) {
           case "turn_start":
-            setActiveTurnId(event.turn_id);
-            setStatusText("智能体正在分析图片并生成编辑方案");
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              activeTurnId: event.turn_id,
+              statusText: "智能体正在分析图片并生成编辑方案",
+            }));
             break;
           case "node_start":
-            setStatusText(`正在处理：${event.node}`);
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              statusText: `正在处理：${event.node}`,
+            }));
             break;
           case "node_complete":
-            setStatusText(`已完成：${event.node}`);
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              statusText: `已完成：${event.node}`,
+            }));
             break;
           case "clarify":
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `clarify-${Date.now()}`,
-                role: "assistant",
-                label: AGENT_NAME,
-                text: event.question,
-              },
-            ]);
-            setStatusText("系统需要进一步澄清");
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              messages: [
+                ...conversation.messages,
+                {
+                  id: `clarify-${Date.now()}`,
+                  role: "assistant",
+                  label: AGENT_NAME,
+                  text: event.question,
+                },
+              ],
+              statusText: "系统需要进一步澄清",
+            }));
             break;
           case "quality_check":
-            setStatusText(event.passed ? "质量检查通过" : "质量检查未通过");
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              statusText: event.passed ? "质量检查通过" : "质量检查未通过",
+            }));
             break;
           case "turn_complete":
-            setCurrentImageUrl(event.output_img_url);
-            setStatusText("图像编辑完成");
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              currentImageUrl: event.output_img_url,
+              statusText: "图像编辑完成",
+            }));
             await refreshSession(session);
-            setActiveTurnId("");
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              activeTurnId: "",
+            }));
             break;
           case "turn_error":
-            setRequestError(event.error);
-            setStatusText("执行失败");
-            setActiveTurnId("");
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              requestError: event.error,
+              statusText: "执行失败",
+              activeTurnId: "",
+            }));
             break;
         }
       }
@@ -476,52 +732,79 @@ export default function Home() {
 
   async function handleSend(options?: { selectedRecId?: string; displayText?: string }) {
     if (!sessionId || isStreaming) return;
+    if (!hasBoundImage) {
+      updateActiveConversation((conversation) => ({
+        ...conversation,
+        requestError: "请先上传图片",
+      }));
+      return;
+    }
 
-    const command = options?.displayText || userCmd;
+    const targetSessionId = sessionId;
+
+    const typedCommand = userCmd.trim();
+    const command = options?.displayText || typedCommand;
     const selectedRecId = options?.selectedRecId || null;
 
     if (!command && !selectedRecId) {
-      setRequestError("请输入编辑指令或点击推荐语");
+      updateActiveConversation((conversation) => ({
+        ...conversation,
+        requestError: "请输入编辑指令或点击推荐语",
+      }));
       return;
     }
 
     setIsStreaming(true);
-    setRequestError("");
+    updateConversationBySessionId(targetSessionId, (conversation) => ({
+      ...conversation,
+      requestError: "",
+    }));
 
     if (options?.displayText) {
-      setDismissedRecommendationIds((prev) =>
-        prev.includes(HIDE_ALL_RECOMMENDATIONS_KEY)
-          ? prev
+      updateConversationBySessionId(targetSessionId, (conversation) => ({
+        ...conversation,
+        dismissedRecommendationIds: conversation.dismissedRecommendationIds.includes(
+          HIDE_ALL_RECOMMENDATIONS_KEY,
+        )
+          ? conversation.dismissedRecommendationIds
           : [
               HIDE_ALL_RECOMMENDATIONS_KEY,
-              ...prev,
+              ...conversation.dismissedRecommendationIds,
               ...(selectedRecId ? [selectedRecId] : []),
             ],
-      );
+      }));
     } else if (selectedRecId) {
-      setDismissedRecommendationIds((prev) =>
-        prev.includes(selectedRecId) ? prev : [...prev, selectedRecId],
-      );
+      updateConversationBySessionId(targetSessionId, (conversation) => ({
+        ...conversation,
+        dismissedRecommendationIds: conversation.dismissedRecommendationIds.includes(selectedRecId)
+          ? conversation.dismissedRecommendationIds
+          : [...conversation.dismissedRecommendationIds, selectedRecId],
+      }));
     }
 
     if (command) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `local-user-${Date.now()}`,
-          role: "user",
-          label: USER_NAME,
-          text: command,
-        },
-      ]);
+      updateConversationBySessionId(targetSessionId, (conversation) => ({
+        ...conversation,
+        messages: [
+          ...conversation.messages,
+          {
+            id: `local-user-${Date.now()}`,
+            role: "user",
+            label: USER_NAME,
+            text: command,
+            imageUrl: conversation.currentImageUrl || conversation.uploadedImageUrl || undefined,
+          },
+        ],
+      }));
     }
 
-    if (!options?.selectedRecId) {
-      setUserCmd("");
-    }
+    updateConversationBySessionId(targetSessionId, (conversation) => ({
+      ...conversation,
+      userCmd: "",
+    }));
 
     try {
-      const response = await fetch(`/api/conversations/${sessionId}/turns`, {
+      const response = await fetch(`/api/conversations/${targetSessionId}/turns`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -535,10 +818,13 @@ export default function Home() {
         throw new Error(payload.error || "执行失败");
       }
 
-      await consumeTurnStream(response, sessionId);
+      await consumeTurnStream(response, targetSessionId);
     } catch (error) {
-      setRequestError(error instanceof Error ? error.message : "执行失败");
-      setStatusText("执行失败");
+      updateConversationBySessionId(targetSessionId, (conversation) => ({
+        ...conversation,
+        requestError: error instanceof Error ? error.message : "执行失败",
+        statusText: "执行失败",
+      }));
     } finally {
       streamReaderRef.current = null;
       setIsStreaming(false);
@@ -553,11 +839,17 @@ export default function Home() {
         method: "POST",
       });
       streamReaderRef.current?.cancel().catch(() => undefined);
-      setActiveTurnId("");
+      updateConversationBySessionId(sessionId, (conversation) => ({
+        ...conversation,
+        activeTurnId: "",
+        statusText: "已发送取消请求",
+      }));
       setIsStreaming(false);
-      setStatusText("已发送取消请求");
     } catch {
-      setRequestError("取消失败");
+      updateConversationBySessionId(sessionId, (conversation) => ({
+        ...conversation,
+        requestError: "取消失败",
+      }));
     }
   }
 
@@ -575,7 +867,7 @@ export default function Home() {
         <div className="sidebar-main">
           <div className="brand">
             <div>
-              <p className="brand-title">Pro Studio</p>
+              <p className="brand-title">BluePixel</p>
               <p className="brand-subtitle">智能图片处理助手</p>
             </div>
           </div>
@@ -584,7 +876,7 @@ export default function Home() {
             type="button"
             className="primary-action"
             onClick={handleCreateEntry}
-            disabled={isCreating}
+            disabled={isCreating || isStreaming || !auth?.ok}
           >
             <img src={SIDEBAR_NEW_ICON} alt="" className="primary-action-icon" />
             {isCreating ? "进入中..." : "创建新绘画"}
@@ -597,15 +889,32 @@ export default function Home() {
             </div>
 
             <div className="history-list">
-              {historyTitle ? (
-                <button className="history-item is-active history-item-live">
-                  <img src={SIDEBAR_CHAT_ICON} alt="" className="history-item-image" />
-                  <span className="history-copy">
-                    <strong>{historyTitle || "图片处理#1"}</strong>
-                    <span>{sessionId ? uploadedPreviewName : "等待上传图片..."}</span>
-                  </span>
-                  <img src={SIDEBAR_DELETE_ICON} alt="" className="history-item-delete" />
-                </button>
+              {sortedConversations.length > 0 ? (
+                sortedConversations.map((conversation) => {
+                  const isActive = conversation.id === activeConversationId;
+                  const previewName = conversation.uploadedFileName
+                    ? conversation.uploadedFileName.toUpperCase()
+                    : "等待上传图片...";
+
+                  return (
+                    <button
+                      key={conversation.id}
+                      className={
+                        isActive ? "history-item is-active history-item-live" : "history-item"
+                      }
+                      onClick={() => setActiveConversationId(conversation.id)}
+                    >
+                      <img src={SIDEBAR_CHAT_ICON} alt="" className="history-item-image" />
+                      <span className="history-copy">
+                        <strong>{conversation.title}</strong>
+                        <span>
+                          {conversation.originalImageUrl ? previewName : "等待上传图片..."}
+                        </span>
+                      </span>
+                      <img src={SIDEBAR_DELETE_ICON} alt="" className="history-item-delete" />
+                    </button>
+                  );
+                })
               ) : (
                 <div className="history-empty">
                   <img src={SIDEBAR_EMPTY_ICON} alt="" className="history-empty-icon" />
@@ -636,9 +945,14 @@ export default function Home() {
               <img src={SIDEBAR_AVATAR} alt="" className="profile-avatar-image" />
             </div>
             <div>
-              <p>{auth?.key_hint || "key-mockui-****"}</p>
+              <p>{auth?.ok ? auth.key_hint : "未登录"}</p>
               <span>Scene Paint Mode</span>
             </div>
+            {auth?.ok ? (
+              <button type="button" className="profile-logout" onClick={() => void handleLogout()}>
+                退出
+              </button>
+            ) : null}
           </div>
         </div>
       </aside>
@@ -646,7 +960,7 @@ export default function Home() {
       <section className="workspace">
         <header className="topbar">
           <div className="topbar-group">
-            <h1>Studio Precision</h1>
+            <h1>BluePixel Studio</h1>
             <nav className="topnav">
               <a href="#">Gallery</a>
               <a href="#" className="active">
@@ -674,16 +988,62 @@ export default function Home() {
 
         <div className="right-overlay" />
 
+        {!auth?.ok ? (
+          <section className="auth-panel">
+            <div className="auth-panel-copy">
+              <span className="panel-kicker">AUTH</span>
+              <strong>连接最新版后端 API</strong>
+              <span>输入 API Key 后，页面会自动创建一个空绘画会话。</span>
+            </div>
+            <form
+              className="auth-panel-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleLogin();
+              }}
+            >
+              <input
+                className="auth-input"
+                value={apiKeyInput}
+                onChange={(event) => setApiKeyInput(event.target.value)}
+                placeholder="输入 API Key"
+              />
+              <button
+                type="submit"
+                className="auth-submit"
+                disabled={isAuthenticating}
+              >
+                {isAuthenticating ? "登录中..." : "登录"}
+              </button>
+            </form>
+            {authRequestError ? <div className="panel-error">{authRequestError}</div> : null}
+          </section>
+        ) : null}
+
         {!showUploadedPreview && !uploadedImageUrl ? (
           <section className="scene-banner">
             <div className="scene-banner-copy">
               <span className="panel-kicker">SCENE</span>
               <strong>场景绘画</strong>
-              <span>{sessionId ? `Scene: ${sessionId.slice(0, 16)}...` : "点击左上角“创建新绘画”即可进入场景绘画"}</span>
+              <span>
+                {sessionId
+                  ? `Scene: ${sessionId.slice(0, 16)}...`
+                  : "正在准备空绘画会话"}
+              </span>
             </div>
             <div className="scene-banner-status">
               <span>{statusText}</span>
               {requestError ? <em>{requestError}</em> : null}
+              {auth?.ok ? (
+                <button
+                  type="button"
+                  className="scene-banner-upload"
+                  onClick={handleSelectImage}
+                  disabled={!sessionId || isCreating || isStreaming}
+                >
+                  上传参考图
+                </button>
+              ) : null}
             </div>
           </section>
         ) : null}
@@ -817,6 +1177,7 @@ export default function Home() {
                             src={message.imageUrl}
                             alt="generated result"
                             className="assistant-image"
+                            onClick={() => setPreviewImageUrl(message.imageUrl ?? "")}
                           />
                           <a
                             href={message.imageUrl}
@@ -837,47 +1198,83 @@ export default function Home() {
         </section>
 
         <section className={showUploadedPreview ? "command-zone command-zone-session" : "command-zone"}>
-          {visibleSuggestions.length > 0 ? (
-            <>
-              {showUploadedPreview ? (
-                <div className="suggestions-heading">推荐处理指令</div>
-              ) : null}
-              <div className={showUploadedPreview ? "suggestions suggestions-session" : "suggestions"}>
-                {visibleSuggestions.map((item) => (
-                  <button
-                    key={`${item.title}-${item.recId}`}
-                    className="suggestion-card"
-                    onClick={() =>
-                      void handleSend({
-                        selectedRecId:
-                          item.recId && !item.recId.startsWith("fallback-")
-                            ? item.recId
-                            : undefined,
-                        displayText: item.title,
-                      })
-                    }
-                    disabled={!sessionId || isStreaming}
-                  >
-                    <div className="suggestion-title">
-                      <SuggestionIcon accent={item.accent} />
-                      <span>{item.title}</span>
-                    </div>
-                    <div className="suggestion-subtitle">{item.subtitle}</div>
-                  </button>
-                ))}
+          {hasBoundImage && recommendationStatus === "running" ? (
+            <div className="recommendation-notice" aria-live="polite">
+              <span className="recommendation-notice-dot" />
+              <div className="recommendation-notice-copy">
+                <strong>后台正在生成推荐指令</strong>
+                <span>你可以直接在下方输入编辑指令，无需等待推荐完成。</span>
               </div>
-            </>
+            </div>
+          ) : null}
+
+          {hasBoundImage && recommendationStatus === "failed" ? (
+            <div className="recommendation-notice recommendation-notice-error" aria-live="polite">
+              <span className="recommendation-notice-dot" />
+              <div className="recommendation-notice-copy">
+                <strong>推荐生成失败</strong>
+                <span>你仍然可以直接输入编辑指令继续操作。</span>
+              </div>
+            </div>
           ) : null}
 
           <div className="composer-glow" />
-          <div className="composer">
+          <div
+            className={visibleSuggestions.length > 0 ? "composer composer-with-suggestions" : "composer"}
+          >
+            {visibleSuggestions.length > 0 ? (
+              <div className="composer-suggestions">
+                <div className="composer-suggestions-heading">你想先尝试哪一种推荐处理？</div>
+                <div className="composer-suggestions-list">
+                  {visibleSuggestions.map((item) => (
+                    <button
+                      key={`${item.title}-${item.recId}`}
+                      className="suggestion-card"
+                      onClick={() =>
+                        void handleSend({
+                          selectedRecId:
+                            item.recId && !item.recId.startsWith("fallback-")
+                              ? item.recId
+                              : undefined,
+                          displayText: item.title,
+                        })
+                      }
+                      disabled={!auth?.ok || !sessionId || !hasBoundImage || isStreaming}
+                    >
+                      <div className="suggestion-title">
+                        <span className="suggestion-index">{item.index}.</span>
+                        <span>{item.title}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="composer-input-shell">
-              <input
+              <textarea
                 className="composer-textarea"
                 value={userCmd}
-                onChange={(event) => setUserCmd(event.target.value)}
-                placeholder={sessionId ? "输入指令继续编辑..." : "请先创建新对话..."}
-                disabled={!sessionId || isStreaming}
+                onChange={(event) =>
+                  updateActiveConversation((conversation) => ({
+                    ...conversation,
+                    userCmd: event.target.value,
+                  }))
+                }
+                placeholder={
+                  !auth?.ok
+                    ? "请先登录..."
+                    : !sessionId
+                      ? "正在创建空绘画..."
+                      : !hasBoundImage
+                        ? "请先上传图片"
+                        : visibleSuggestions.length > 0
+                          ? "也可以在这里补充你的手动编辑指令..."
+                          : "要求后续变更"
+                }
+                disabled={!auth?.ok || !sessionId || !hasBoundImage || isStreaming}
+                rows={1}
+                aria-label="message composer"
               />
             </div>
 
@@ -885,37 +1282,57 @@ export default function Home() {
               <div className="composer-left">
                 <button
                   className="add-button"
-                  aria-label="refresh session"
-                  onClick={() => void (sessionId ? refreshSession(sessionId) : Promise.resolve())}
+                  aria-label="upload image"
+                  onClick={handleSelectImage}
                 >
                   <img src={COMPOSER_ADD_ICON} alt="" className="add-button-icon" />
                 </button>
 
                 <div className="mode-row">
-                  <button className="mode-button" type="button">
+                  <button
+                    className={externalEnabled ? "mode-button is-active" : "mode-button"}
+                    type="button"
+                    aria-pressed={externalEnabled}
+                    onClick={() =>
+                      updateActiveConversation((conversation) => ({
+                        ...conversation,
+                        externalEnabled: !conversation.externalEnabled,
+                      }))
+                    }
+                  >
                     <img src={COMPOSER_WEB_ICON} alt="" className="mode-icon-image mode-icon-web" />
-                    <span>web</span>
-                    <img src={COMPOSER_CHECK_ICON} alt="" className="mode-check-icon" />
+                    <span>Web</span>
+                    <span className="mode-toggle-indicator" aria-hidden="true" />
                   </button>
-                  <button className="mode-button" type="button">
+                  <button
+                    className={thinkingEnabled ? "mode-button is-active" : "mode-button"}
+                    type="button"
+                    aria-pressed={thinkingEnabled}
+                    onClick={() =>
+                      updateActiveConversation((conversation) => ({
+                        ...conversation,
+                        thinkingEnabled: !conversation.thinkingEnabled,
+                      }))
+                    }
+                  >
                     <img
                       src={COMPOSER_THINKING_ICON}
                       alt=""
                       className="mode-icon-image mode-icon-thinking"
                     />
                     <span>Thinking</span>
-                    <img src={COMPOSER_CHECK_ICON} alt="" className="mode-check-icon" />
+                    <span className="mode-toggle-indicator" aria-hidden="true" />
                   </button>
                 </div>
               </div>
 
-              <div className="composer-right">
+              <div className="composer-right composer-action">
                 <button
                   className="send-button"
                   aria-label="send"
                   type="button"
                   onClick={() => void (activeTurnId ? handleCancel() : handleSend())}
-                  disabled={!sessionId || isStreaming}
+                  disabled={!auth?.ok || !sessionId || !hasBoundImage || isStreaming}
                 >
                   <span className="send-button-shadow" />
                   <span className="send-icon-wrap">
@@ -931,6 +1348,28 @@ export default function Home() {
           </div>
         </section>
       </section>
+
+      {previewImageUrl ? (
+        <div
+          className="image-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="图片预览"
+          onClick={() => setPreviewImageUrl("")}
+        >
+          <div className="image-lightbox-panel" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className="image-lightbox-close"
+              aria-label="close preview"
+              onClick={() => setPreviewImageUrl("")}
+            >
+              ×
+            </button>
+            <img src={previewImageUrl} alt="preview" className="image-lightbox-image" />
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
