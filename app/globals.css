@@ -1937,15 +1937,18 @@ button {
 }
 
 .assistant-image-frame {
-  width: min(400px, 40vw, 100%);
+  width: fit-content;
+  max-width: min(400px, 40vw, 100%);
   border-radius: 12px;
 }
 
 .assistant-image {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   height: auto;
   max-height: min(520px, 56vh);
+  aspect-ratio: auto;
   border-radius: 12px;
   object-fit: contain;
 }
