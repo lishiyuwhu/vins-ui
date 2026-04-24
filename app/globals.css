@@ -965,36 +965,17 @@ button {
   animation: ticker-spin 900ms linear infinite;
 }
 
-.progress-ticker-track {
-  position: relative;
-  flex: 1 1 auto;
-  overflow: hidden;
-}
-
 .progress-ticker-copy {
-  display: inline-flex;
-  gap: 48px;
-  min-width: max-content;
+  flex: 1 1 auto;
   color: rgba(248, 245, 253, 0.72);
   font-size: 14px;
   line-height: 20px;
   white-space: nowrap;
-  animation: ticker-marquee 10s linear infinite;
 }
 
 @keyframes ticker-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes ticker-marquee {
-  from {
-    transform: translateX(0);
-  }
-
-  to {
-    transform: translateX(-33.333%);
   }
 }
 
@@ -1970,7 +1951,8 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
-  width: min(1080px, calc(100% - 72px));
+  width: min(50%, 1220px);
+  min-width: min(520px, calc(100% - 48px));
   margin: 0 auto 10px;
   padding: 14px 16px;
   border: 1px solid rgba(79, 140, 255, 0.14);
@@ -2764,7 +2746,8 @@ button {
 
 @media (max-width: 1080px) {
   .recommendation-notice {
-    width: min(100%, calc(100% - 28px));
+    width: min(50%, 100%);
+    min-width: min(520px, calc(100% - 22px));
   }
 
   .auth-panel {
@@ -2779,7 +2762,8 @@ button {
 
 @media (max-width: 720px) {
   .recommendation-notice {
-    width: calc(100% - 16px);
+    width: calc(100% - 8px);
+    min-width: 0;
     margin-bottom: 8px;
     padding: 12px 14px;
     border-radius: 16px;

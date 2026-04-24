@@ -127,6 +127,7 @@ const SIDEBAR_AVATAR =
 const SIDEBAR_EMPTY_ICON =
   "https://www.figma.com/api/mcp/asset/127372b4-8f72-4c4e-8a4a-64c766f4f8af";
 const HIDE_ALL_RECOMMENDATIONS_KEY = "__all__";
+const TURN_PROGRESS_COPY = "智能体正在分析图片并在生成中";
 const RECOMMENDATION_POLL_INTERVAL_MS = 1500;
 const RECOMMENDATION_POLL_MAX_ATTEMPTS = 40;
 const TURN_POLL_INTERVAL_MS = 1500;
@@ -1432,13 +1433,7 @@ export default function Home() {
                     </div>
                     <div className="progress-ticker" aria-live="polite">
                       <span className="progress-ticker-icon" />
-                      <div className="progress-ticker-track">
-                        <div className="progress-ticker-copy">
-                          <span>{statusText}</span>
-                          <span>{statusText}</span>
-                          <span>{statusText}</span>
-                        </div>
-                      </div>
+                      <span className="progress-ticker-copy">{TURN_PROGRESS_COPY}</span>
                     </div>
                   </article>
                 ) : null}
