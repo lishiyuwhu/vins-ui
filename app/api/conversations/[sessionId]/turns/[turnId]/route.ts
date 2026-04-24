@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStoredApiKey, proxyJson } from "@/lib/backend";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ sessionId: string }> },
+export async function GET(
+  _request: NextRequest,
+  {
+    params,
+  }: { params: Promise<{ sessionId: string; turnId: string }> },
 ) {
   try {
     const apiKey = await getStoredApiKey();
@@ -11,19 +13,13 @@ export async function POST(
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
 
-    const { sessionId } = await params;
-    const body = await request.text();
-
-    const response = await proxyJson(`/conversations/${sessionId}/turns`, {
-      method: "POST",
+    const { sessionId, turnId } = await params;
+    const response = await proxyJson(`/conversations/${sessionId}/turns/${turnId}`, {
+      method: "GET",
       apiKey,
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body,
     });
 
-    const payload = await response.json().catch(() => ({ error: "执行失败" }));
+    const payload = await response.json().catch(() => ({ error: "查询执行结果失败" }));
     return NextResponse.json(payload, { status: response.status });
   } catch {
     return NextResponse.json({ error: "后端服务不可达" }, { status: 502 });
