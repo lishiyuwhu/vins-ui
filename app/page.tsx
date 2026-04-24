@@ -243,10 +243,13 @@ function mergeSessionTurnMessages(
 ) {
   const nextMessages = messages.length > 0 ? [...messages] : buildMessagesFromTurns([], "");
   let fallbackInputImageUrl = currentImgUrl ?? "";
+  let shouldAttachNextUserImage = !nextMessages.some((message) => message.role === "user");
 
   turns.forEach((turn) => {
     const userText = turn.user_cmd?.trim();
-    const inputImageUrl = turn.input_img_url || fallbackInputImageUrl || undefined;
+    const inputImageUrl = shouldAttachNextUserImage
+      ? turn.input_img_url || fallbackInputImageUrl || undefined
+      : undefined;
 
     if (
       userText &&
@@ -260,6 +263,9 @@ function mergeSessionTurnMessages(
         text: userText,
         imageUrl: inputImageUrl,
       });
+    }
+    if (userText) {
+      shouldAttachNextUserImage = false;
     }
 
     const mergedMessages = mergeTurnMessage(nextMessages, turn);
@@ -316,6 +322,7 @@ export default function Home() {
   const activeTurnId = activeConversation?.activeTurnId ?? "";
   const requestError = activeConversation?.requestError ?? "";
   const hasBoundImage = Boolean(originalImageUrl);
+  const canSendMessage = Boolean(auth?.ok && sessionId && hasBoundImage && !isStreaming);
   const sortedConversations = useMemo(
     () => [...conversations].reverse(),
     [conversations],
@@ -973,7 +980,9 @@ export default function Home() {
             role: "user",
             label: USER_NAME,
             text: command,
-            imageUrl: conversation.currentImageUrl || conversation.uploadedImageUrl || undefined,
+            imageUrl: conversation.messages.some((message) => message.role === "user")
+              ? undefined
+              : conversation.uploadedImageUrl || conversation.originalImageUrl || undefined,
           },
         ],
       }));
@@ -1431,6 +1440,19 @@ export default function Home() {
                     userCmd: event.target.value,
                   }))
                 }
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                    return;
+                  }
+
+                  event.preventDefault();
+
+                  if (!canSendMessage || !userCmd.trim()) {
+                    return;
+                  }
+
+                  void handleSend();
+                }}
                 placeholder={
                   !auth?.ok
                     ? "请先登录..."
@@ -1442,7 +1464,7 @@ export default function Home() {
                           ? "也可以在这里补充你的手动编辑指令..."
                           : "要求后续变更"
                 }
-                disabled={!auth?.ok || !sessionId || !hasBoundImage || isStreaming}
+                disabled={!canSendMessage}
                 rows={1}
                 aria-label="message composer"
               />
@@ -1502,7 +1524,7 @@ export default function Home() {
                   aria-label="send"
                   type="button"
                   onClick={() => void (activeTurnId ? handleCancel() : handleSend())}
-                  disabled={!auth?.ok || !sessionId || !hasBoundImage || isStreaming}
+                  disabled={!canSendMessage}
                 >
                   <span className="send-button-shadow" />
                   <span className="send-icon-wrap">
