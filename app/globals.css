@@ -448,6 +448,40 @@ button {
   gap: 24px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.build-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+}
+
+.build-badge-label {
+  color: rgba(17, 24, 39, 0.42);
+  font-family: var(--font-display), sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.build-badge strong {
+  color: #111827;
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .topbar-icon {
   position: relative;
   display: flex;
@@ -970,6 +1004,48 @@ button {
   color: rgba(248, 245, 253, 0.72);
   font-size: 14px;
   line-height: 20px;
+  white-space: nowrap;
+}
+
+.progress-ticker-body {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.queue-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  min-width: 168px;
+}
+
+.queue-progress-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(129, 236, 255, 0.14);
+}
+
+.queue-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8ef2ff, #4f8cff);
+  box-shadow: 0 0 16px rgba(79, 140, 255, 0.28);
+  transition: width 260ms ease;
+}
+
+.queue-progress-meta {
+  flex: 0 0 auto;
+  color: rgba(248, 245, 253, 0.58);
+  font-size: 12px;
+  line-height: 16px;
   white-space: nowrap;
 }
 
@@ -1742,6 +1818,14 @@ button {
 
 .progress-ticker-copy {
   color: rgba(55, 65, 81, 0.72);
+}
+
+.queue-progress-track {
+  background: rgba(79, 140, 255, 0.12);
+}
+
+.queue-progress-meta {
+  color: rgba(55, 65, 81, 0.58);
 }
 
 .suggestion-card {
@@ -2796,6 +2880,21 @@ button {
 }
 
 @media (max-width: 720px) {
+  .progress-ticker {
+    align-items: flex-start;
+  }
+
+  .progress-ticker-body {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .queue-progress {
+    width: 100%;
+    min-width: 0;
+  }
+
   .recommendation-notice {
     width: calc(100% - 8px);
     min-width: 0;

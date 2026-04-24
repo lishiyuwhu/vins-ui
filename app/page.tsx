@@ -23,9 +23,12 @@ type TurnRecord = {
   user_cmd?: string | null;
   selected_rec_id?: string | null;
   resolved_cmd?: string | null;
+  skip_intent?: boolean | null;
   result_type?: "execute" | "clarify" | string | null;
   clarify_question?: string | null;
   current_node?: string | null;
+  queue_position?: number | null;
+  queue_size?: number | null;
   status?: string | null;
   error?: string | null;
   input_img_url?: string | null;
@@ -47,7 +50,17 @@ type SessionResponse = {
   recommendation_status?: string | null;
   recommendation_error?: string | null;
   turns?: TurnRecord[];
+  pending_turn_id?: string | null;
   active_turn_id?: string | null;
+};
+
+type TurnStartResponse = {
+  session_id?: string;
+  turn_id?: string;
+  status?: "queued" | "running" | string;
+  queue_position?: number | null;
+  queue_size?: number | null;
+  error?: string;
 };
 
 type AuthState = {
@@ -86,6 +99,9 @@ type LocalConversation = {
   messages: ChatMessage[];
   userCmd: string;
   activeTurnId: string;
+  activeTurnStatus: string;
+  activeQueuePosition: number | null;
+  activeQueueSize: number | null;
   statusText: string;
   requestError: string;
   externalEnabled: boolean;
@@ -132,6 +148,8 @@ const RECOMMENDATION_POLL_INTERVAL_MS = 1500;
 const RECOMMENDATION_POLL_MAX_ATTEMPTS = 40;
 const TURN_POLL_INTERVAL_MS = 1500;
 const TURN_POLL_MAX_ATTEMPTS = 120;
+const BUILD_COMMIT_SHA =
+  process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "dev-local";
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -311,6 +329,23 @@ function hasImageTransferData(dataTransfer: DataTransfer) {
   );
 }
 
+function getSessionActivityTurnId(session: SessionResponse) {
+  return session.pending_turn_id || session.active_turn_id || "";
+}
+
+function getQueueProgressPercent(status: string, position: number | null, size: number | null) {
+  if (status === "running") {
+    return 100;
+  }
+
+  if (status !== "queued" || typeof position !== "number" || typeof size !== "number" || size <= 0) {
+    return null;
+  }
+
+  const completedSlots = Math.max(0, size - Math.max(position, 1) + 1);
+  return Math.min(100, Math.max(6, Math.round((completedSlots / size) * 100)));
+}
+
 export default function Home() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState(TEST_API_KEY);
@@ -321,10 +356,12 @@ export default function Home() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const initializedSessionRef = useRef(false);
+  const pollingTurnRef = useRef("");
   const activeConversation = useMemo(
     () => conversations.find((item) => item.id === activeConversationId) ?? null,
     [activeConversationId, conversations],
@@ -343,12 +380,25 @@ export default function Home() {
   const thinkingEnabled = activeConversation?.thinkingEnabled ?? false;
   const statusText = activeConversation?.statusText ?? "准备进入场景绘画";
   const activeTurnId = activeConversation?.activeTurnId ?? "";
+  const activeTurnStatus = activeConversation?.activeTurnStatus ?? "";
+  const activeQueuePosition = activeConversation?.activeQueuePosition ?? null;
+  const activeQueueSize = activeConversation?.activeQueueSize ?? null;
   const requestError = activeConversation?.requestError ?? "";
   const hasBoundImage = Boolean(originalImageUrl);
-  const canSendMessage = Boolean(auth?.ok && sessionId && hasBoundImage && !isStreaming);
+  const hasActiveTurn = Boolean(activeTurnId);
+  const isTurnBusy = isStreaming || hasActiveTurn;
+  const canSendMessage = Boolean(auth?.ok && sessionId && hasBoundImage && !isTurnBusy);
+  const canUseSendButton = Boolean(
+    activeTurnId || (auth?.ok && sessionId && hasBoundImage && !isTurnBusy),
+  );
   const sortedConversations = useMemo(
     () => [...conversations].reverse(),
     [conversations],
+  );
+  const queueProgressPercent = getQueueProgressPercent(
+    activeTurnStatus,
+    activeQueuePosition,
+    activeQueueSize,
   );
 
   function updateConversation(
@@ -446,6 +496,9 @@ export default function Home() {
         messages: buildMessagesFromTurns([], ""),
         userCmd: "",
         activeTurnId: "",
+        activeTurnStatus: "",
+        activeQueuePosition: null,
+        activeQueueSize: null,
         statusText: "空绘画已创建，等待上传图片",
         requestError: "",
         externalEnabled: false,
@@ -471,6 +524,9 @@ export default function Home() {
           messages: buildMessagesFromTurns([], ""),
           userCmd: "",
           activeTurnId: "",
+          activeTurnStatus: "",
+          activeQueuePosition: null,
+          activeQueueSize: null,
           statusText: "创建空绘画失败",
           requestError: error instanceof Error ? error.message : "创建会话失败",
           externalEnabled: false,
@@ -514,7 +570,7 @@ export default function Home() {
       hasUserMessages ||
       dismissedRecommendationIds.length > 0 ||
       dismissedRecommendationIds.includes(HIDE_ALL_RECOMMENDATIONS_KEY) ||
-      isStreaming
+      isTurnBusy
     ) {
       return [];
     }
@@ -534,7 +590,7 @@ export default function Home() {
     return [];
   }, [
     dismissedRecommendationIds,
-    isStreaming,
+    isTurnBusy,
     messages,
     recommendations,
     sessionId,
@@ -546,10 +602,10 @@ export default function Home() {
     [messages],
   );
   const activeProgressAfterMessageId = useMemo(() => {
-    if (!isStreaming) return "";
+    if (!isTurnBusy) return "";
 
     return [...messages].reverse().find((message) => message.role === "user")?.id ?? "";
-  }, [isStreaming, messages]);
+  }, [isTurnBusy, messages]);
 
   const showUploadedPreview = useMemo(
     () =>
@@ -579,24 +635,33 @@ export default function Home() {
     }
 
     const payload = (await response.json()) as SessionResponse;
-    updateConversationBySessionId(id, (conversation) => ({
-      ...conversation,
-      originalImageUrl: payload.original_img_url ?? "",
-      currentImageUrl:
-        payload.turns && payload.turns.length > 0
-          ? payload.current_img_url ?? ""
-          : conversation.uploadedImageUrl || payload.current_img_url || "",
-      recommendations: payload.recommendations ?? [],
-      recommendationStatus: payload.recommendation_status ?? "idle",
-      dismissedRecommendationIds:
-        payload.turns && payload.turns.length > 0 ? [HIDE_ALL_RECOMMENDATIONS_KEY] : [],
-      activeTurnId: payload.active_turn_id ?? "",
-      messages: mergeSessionTurnMessages(
-        conversation.messages,
-        payload.turns ?? [],
-        conversation.uploadedImageUrl || payload.current_img_url,
-      ),
-    }));
+    updateConversationBySessionId(id, (conversation) => {
+      const activityTurnId = getSessionActivityTurnId(payload);
+      const activityTurn = payload.turns?.find((turn) => turn.turn_id === activityTurnId);
+
+      return {
+        ...conversation,
+        originalImageUrl: payload.original_img_url ?? "",
+        currentImageUrl:
+          payload.turns && payload.turns.length > 0
+            ? payload.current_img_url ?? ""
+            : conversation.uploadedImageUrl || payload.current_img_url || "",
+        recommendations: payload.recommendations ?? [],
+        recommendationStatus: payload.recommendation_status ?? "idle",
+        dismissedRecommendationIds:
+          payload.turns && payload.turns.length > 0 ? [HIDE_ALL_RECOMMENDATIONS_KEY] : [],
+        activeTurnId: activityTurnId,
+        activeTurnStatus:
+          activityTurn?.status || (payload.pending_turn_id ? "queued" : payload.active_turn_id ? "running" : ""),
+        activeQueuePosition: activityTurn?.queue_position ?? null,
+        activeQueueSize: activityTurn?.queue_size ?? null,
+        messages: mergeSessionTurnMessages(
+          conversation.messages,
+          payload.turns ?? [],
+          conversation.uploadedImageUrl || payload.current_img_url,
+        ),
+      };
+    });
 
     return payload;
   }
@@ -706,7 +771,7 @@ export default function Home() {
   }
 
   function handleCreateEntry() {
-    if (isCreating || isStreaming || !auth?.ok) return;
+    if (isCreating || isTurnBusy || isUploadingImage || !auth?.ok) return;
 
     const nextIndex = sessionCounter + 1;
     const nextTitle = `图片处理 #${nextIndex}`;
@@ -714,6 +779,10 @@ export default function Home() {
   }
 
   function handleSelectImage() {
+    if (isUploadingImage) {
+      return;
+    }
+
     if (!auth?.ok) {
       updateActiveConversation((conversation) => ({
         ...conversation,
@@ -737,6 +806,8 @@ export default function Home() {
     const targetSessionId = sessionId;
 
     try {
+      setIsUploadingImage(true);
+
       if (!auth?.ok) {
         throw new Error("请先登录");
       }
@@ -745,7 +816,7 @@ export default function Home() {
         throw new Error("当前没有可用的绘画会话");
       }
 
-      if (isStreaming) {
+      if (isTurnBusy) {
         throw new Error("当前正在执行编辑，请等待完成后再上传图片");
       }
 
@@ -780,6 +851,9 @@ export default function Home() {
         recommendationStatus: "running",
         dismissedRecommendationIds: [],
         activeTurnId: "",
+        activeTurnStatus: "",
+        activeQueuePosition: null,
+        activeQueueSize: null,
         statusText: "正在绑定图片",
       }));
 
@@ -829,6 +903,8 @@ export default function Home() {
         requestError: error instanceof Error ? error.message : "读取图片失败，请重新上传",
         statusText: "图片处理准备失败",
       }));
+    } finally {
+      setIsUploadingImage(false);
     }
   }
 
@@ -847,6 +923,10 @@ export default function Home() {
   }
 
   function handleWorkspacePaste(event: ClipboardEvent<HTMLElement>) {
+    if (isUploadingImage) {
+      return;
+    }
+
     const file = getFirstImageFile(event.clipboardData.files);
     if (!file) {
       return;
@@ -857,6 +937,10 @@ export default function Home() {
   }
 
   function handleWorkspaceDragOver(event: DragEvent<HTMLElement>) {
+    if (isUploadingImage) {
+      return;
+    }
+
     if (!hasImageTransferData(event.dataTransfer)) {
       return;
     }
@@ -866,6 +950,10 @@ export default function Home() {
   }
 
   function handleWorkspaceDrop(event: DragEvent<HTMLElement>) {
+    if (isUploadingImage) {
+      return;
+    }
+
     const file = getFirstImageFile(event.dataTransfer.files);
     if (!file) {
       return;
@@ -876,6 +964,21 @@ export default function Home() {
   }
 
   function getTurnStatusText(turn: TurnRecord) {
+    if (turn.status === "queued") {
+      const position = turn.queue_position ?? null;
+      const size = turn.queue_size ?? null;
+
+      if (typeof position === "number" && position > 0 && typeof size === "number" && size > 0) {
+        return `任务排队中：第 ${position} 位 / 共 ${size} 个`;
+      }
+
+      if (typeof position === "number" && position > 0) {
+        return `任务排队中：第 ${position} 位`;
+      }
+
+      return "任务已提交，正在等待智能体执行";
+    }
+
     if (turn.status === "running") {
       return turn.current_node ? `正在处理：${turn.current_node}` : "智能体正在分析图片并生成编辑方案";
     }
@@ -896,97 +999,147 @@ export default function Home() {
   }
 
   async function pollTurnResult(session: string, turnId: string) {
+    if (pollingTurnRef.current === turnId) {
+      return;
+    }
+
+    pollingTurnRef.current = turnId;
     updateConversationBySessionId(session, (conversation) => ({
       ...conversation,
       requestError: "",
       activeTurnId: turnId,
-      statusText: "智能体正在分析图片并生成编辑方案",
+      activeTurnStatus: "queued",
+      activeQueuePosition: null,
+      activeQueueSize: null,
+      statusText: "任务已提交，正在等待智能体执行",
     }));
 
-    for (let attempt = 0; attempt < TURN_POLL_MAX_ATTEMPTS; attempt += 1) {
-      if (attempt > 0) {
-        await wait(TURN_POLL_INTERVAL_MS);
-      }
+    try {
+      for (let attempt = 0; attempt < TURN_POLL_MAX_ATTEMPTS; attempt += 1) {
+        if (attempt > 0) {
+          await wait(TURN_POLL_INTERVAL_MS);
+        }
 
-      const response = await fetch(`/api/conversations/${session}/turns/${turnId}`, {
-        cache: "no-store",
-      });
-      const payload = (await response.json().catch(() => ({
-        error: "查询执行结果失败",
-      }))) as TurnResponse;
+        const response = await fetch(`/api/conversations/${session}/turns/${turnId}`, {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({
+          error: "查询执行结果失败",
+        }))) as TurnResponse;
 
-      if (!response.ok || !payload.turn) {
-        throw new Error(payload.error || "查询执行结果失败");
-      }
+        if (!response.ok || !payload.turn) {
+          throw new Error(payload.error || "查询执行结果失败");
+        }
 
-      const { turn } = payload;
+        const { turn } = payload;
 
-      if (turn.status === "running") {
+        if (turn.status === "queued" || turn.status === "running") {
+          updateConversationBySessionId(session, (conversation) => ({
+            ...conversation,
+            activeTurnId: turn.turn_id,
+            activeTurnStatus: turn.status ?? "",
+            activeQueuePosition: turn.queue_position ?? null,
+            activeQueueSize: turn.queue_size ?? null,
+            statusText: getTurnStatusText(turn),
+          }));
+          continue;
+        }
+
+        await refreshSession(session);
+
+        if (turn.status === "failed") {
+          updateConversationBySessionId(session, (conversation) => ({
+            ...conversation,
+            activeTurnId: "",
+            activeTurnStatus: "",
+            activeQueuePosition: null,
+            activeQueueSize: null,
+            requestError: turn.error || "图像编辑失败",
+            statusText: "执行失败",
+          }));
+          return;
+        }
+
+        if (turn.status === "cancelled") {
+          updateConversationBySessionId(session, (conversation) => ({
+            ...conversation,
+            activeTurnId: "",
+            activeTurnStatus: "",
+            activeQueuePosition: null,
+            activeQueueSize: null,
+            statusText: "任务已取消",
+          }));
+          return;
+        }
+
+        if (turn.result_type === "clarify") {
+          updateConversationBySessionId(session, (conversation) => ({
+            ...conversation,
+            messages: mergeTurnMessage(conversation.messages, turn),
+            activeTurnId: "",
+            activeTurnStatus: "",
+            activeQueuePosition: null,
+            activeQueueSize: null,
+            statusText: "系统需要进一步澄清",
+          }));
+          return;
+        }
+
+        if (turn.output_img_url) {
+          updateConversationBySessionId(session, (conversation) => ({
+            ...conversation,
+            currentImageUrl: turn.output_img_url ?? conversation.currentImageUrl,
+            messages: mergeTurnMessage(conversation.messages, turn),
+            activeTurnId: "",
+            activeTurnStatus: "",
+            activeQueuePosition: null,
+            activeQueueSize: null,
+            requestError: "",
+            statusText: "图像编辑完成",
+          }));
+          return;
+        }
+
         updateConversationBySessionId(session, (conversation) => ({
           ...conversation,
-          activeTurnId: turn.turn_id,
+          messages: mergeTurnMessage(conversation.messages, turn),
+          activeTurnId: "",
+          activeTurnStatus: "",
+          activeQueuePosition: null,
+          activeQueueSize: null,
           statusText: getTurnStatusText(turn),
         }));
-        continue;
-      }
-
-      await refreshSession(session);
-
-      if (turn.status === "failed") {
-        updateConversationBySessionId(session, (conversation) => ({
-          ...conversation,
-          activeTurnId: "",
-          requestError: turn.error || "图像编辑失败",
-          statusText: "执行失败",
-        }));
         return;
       }
 
-      if (turn.status === "cancelled") {
-        updateConversationBySessionId(session, (conversation) => ({
-          ...conversation,
-          activeTurnId: "",
-          statusText: "任务已取消",
-        }));
-        return;
+      throw new Error("结果同步超时，请稍后刷新会话");
+    } finally {
+      if (pollingTurnRef.current === turnId) {
+        pollingTurnRef.current = "";
       }
+    }
+  }
 
-      if (turn.result_type === "clarify") {
-        updateConversationBySessionId(session, (conversation) => ({
-          ...conversation,
-          messages: mergeTurnMessage(conversation.messages, turn),
-          activeTurnId: "",
-          statusText: "系统需要进一步澄清",
-        }));
-        return;
-      }
-
-      if (turn.output_img_url) {
-        updateConversationBySessionId(session, (conversation) => ({
-          ...conversation,
-          currentImageUrl: turn.output_img_url ?? conversation.currentImageUrl,
-          messages: mergeTurnMessage(conversation.messages, turn),
-          activeTurnId: "",
-          requestError: "",
-          statusText: "图像编辑完成",
-        }));
-        return;
-      }
-
-      updateConversationBySessionId(session, (conversation) => ({
-        ...conversation,
-        messages: mergeTurnMessage(conversation.messages, turn),
-        activeTurnId: "",
-        statusText: getTurnStatusText(turn),
-      }));
+  useEffect(() => {
+    if (!sessionId || !activeTurnId || isStreaming || pollingTurnRef.current === activeTurnId) {
       return;
     }
 
-    throw new Error("结果同步超时，请稍后刷新会话");
-  }
+    void pollTurnResult(sessionId, activeTurnId).catch((error) => {
+      updateConversationBySessionId(sessionId, (conversation) => ({
+        ...conversation,
+        activeTurnId: "",
+        activeTurnStatus: "",
+        activeQueuePosition: null,
+        activeQueueSize: null,
+        requestError: error instanceof Error ? error.message : "查询执行结果失败",
+        statusText: "执行失败",
+      }));
+    });
+  }, [activeTurnId, isStreaming, sessionId]);
 
   async function handleSend(options?: { selectedRecId?: string; displayText?: string }) {
-    if (!sessionId || isStreaming) return;
+    if (!sessionId || isTurnBusy) return;
     if (!hasBoundImage) {
       updateActiveConversation((conversation) => ({
         ...conversation,
@@ -1077,17 +1230,38 @@ export default function Home() {
 
       const payload = (await response.json().catch(() => ({
         error: "任务启动失败",
-      }))) as { turn_id?: string; status?: string; error?: string };
+      }))) as TurnStartResponse;
 
       if (!payload.turn_id) {
         throw new Error(payload.error || "任务启动失败");
       }
+
+      updateConversationBySessionId(targetSessionId, (conversation) => ({
+        ...conversation,
+        activeTurnId: payload.turn_id ?? "",
+        activeTurnStatus: payload.status ?? "",
+        activeQueuePosition: payload.queue_position ?? null,
+        activeQueueSize: payload.queue_size ?? null,
+        statusText:
+          payload.status === "queued"
+            ? getTurnStatusText({
+                turn_id: payload.turn_id ?? "",
+                turn_index: 0,
+                status: payload.status,
+                queue_position: payload.queue_position,
+                queue_size: payload.queue_size,
+              })
+            : "智能体正在分析图片并生成编辑方案",
+      }));
 
       await pollTurnResult(targetSessionId, payload.turn_id);
     } catch (error) {
       updateConversationBySessionId(targetSessionId, (conversation) => ({
         ...conversation,
         activeTurnId: "",
+        activeTurnStatus: "",
+        activeQueuePosition: null,
+        activeQueueSize: null,
         requestError: error instanceof Error ? error.message : "执行失败",
         statusText: "执行失败",
       }));
@@ -1100,19 +1274,27 @@ export default function Home() {
     if (!sessionId || !activeTurnId) return;
 
     try {
-      await fetch(`/api/conversations/${sessionId}/turns/${activeTurnId}/cancel`, {
+      const response = await fetch(`/api/conversations/${sessionId}/turns/${activeTurnId}/cancel`, {
         method: "POST",
       });
+      const payload = (await response.json().catch(() => ({
+        ok: false,
+        message: "取消失败",
+      }))) as { ok?: boolean; message?: string; error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error || payload.message || "取消失败");
+      }
+
       updateConversationBySessionId(sessionId, (conversation) => ({
         ...conversation,
-        activeTurnId: "",
-        statusText: "已发送取消请求",
+        requestError: payload.ok ? "" : payload.message || "当前任务暂不支持立即取消",
+        statusText: payload.message || (payload.ok ? "已发送取消请求" : "当前任务暂不支持立即取消"),
       }));
-      setIsStreaming(false);
-    } catch {
+    } catch (error) {
       updateConversationBySessionId(sessionId, (conversation) => ({
         ...conversation,
-        requestError: "取消失败",
+        requestError: error instanceof Error ? error.message : "取消失败",
       }));
     }
   }
@@ -1140,7 +1322,7 @@ export default function Home() {
             type="button"
             className="primary-action"
             onClick={handleCreateEntry}
-            disabled={isCreating || isStreaming || !auth?.ok}
+            disabled={isCreating || isTurnBusy || !auth?.ok}
           >
             <img src={SIDEBAR_NEW_ICON} alt="" className="primary-action-icon" />
             {isCreating ? "进入中..." : "创建新绘画"}
@@ -1222,7 +1404,7 @@ export default function Home() {
       </aside>
 
       <section
-        className="workspace"
+        className={isUploadingImage ? "workspace is-uploading-image" : "workspace"}
         onPaste={handleWorkspacePaste}
         onDragOver={handleWorkspaceDragOver}
         onDrop={handleWorkspaceDrop}
@@ -1239,19 +1421,26 @@ export default function Home() {
             </nav>
           </div>
 
-          <div className="topbar-icons" aria-hidden="true">
-            <button
-              aria-label="messages"
-              className="topbar-icon topbar-icon-chat"
-            >
-              <img src={TOPBAR_MESSAGE_ICON} alt="" className="topbar-icon-image topbar-icon-image-chat" />
-            </button>
-            <button
-              aria-label="notifications"
-              className="topbar-icon topbar-icon-bell"
-            >
-              <img src={TOPBAR_BELL_ICON} alt="" className="topbar-icon-image topbar-icon-image-bell" />
-            </button>
+          <div className="topbar-actions">
+            <div className="build-badge" title={`Build commit: ${BUILD_COMMIT_SHA}`}>
+              <span className="build-badge-label">Build</span>
+              <strong>{BUILD_COMMIT_SHA}</strong>
+            </div>
+
+            <div className="topbar-icons" aria-hidden="true">
+              <button
+                aria-label="messages"
+                className="topbar-icon topbar-icon-chat"
+              >
+                <img src={TOPBAR_MESSAGE_ICON} alt="" className="topbar-icon-image topbar-icon-image-chat" />
+              </button>
+              <button
+                aria-label="notifications"
+                className="topbar-icon topbar-icon-bell"
+              >
+                <img src={TOPBAR_BELL_ICON} alt="" className="topbar-icon-image topbar-icon-image-bell" />
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1308,7 +1497,7 @@ export default function Home() {
                   type="button"
                   className="scene-banner-upload"
                   onClick={handleSelectImage}
-                  disabled={!sessionId || isCreating || isStreaming}
+                  disabled={!sessionId || isCreating || isTurnBusy || isUploadingImage}
                 >
                   上传参考图
                 </button>
@@ -1433,7 +1622,24 @@ export default function Home() {
                     </div>
                     <div className="progress-ticker" aria-live="polite">
                       <span className="progress-ticker-icon" />
-                      <span className="progress-ticker-copy">{TURN_PROGRESS_COPY}</span>
+                      <span className="progress-ticker-body">
+                        <span className="progress-ticker-copy">
+                          {statusText || TURN_PROGRESS_COPY}
+                        </span>
+                        {activeTurnStatus === "queued" && queueProgressPercent !== null ? (
+                          <span className="queue-progress" aria-label="当前排队进度">
+                            <span className="queue-progress-track">
+                              <span
+                                className="queue-progress-fill"
+                                style={{ width: `${queueProgressPercent}%` }}
+                              />
+                            </span>
+                            <span className="queue-progress-meta">
+                              排队 {activeQueuePosition ?? "-"} / {activeQueueSize ?? "-"}
+                            </span>
+                          </span>
+                        ) : null}
+                      </span>
                     </div>
                   </article>
                 ) : null}
@@ -1443,6 +1649,16 @@ export default function Home() {
         </section>
 
         <section className={showUploadedPreview ? "command-zone command-zone-session" : "command-zone"}>
+          {isUploadingImage ? (
+            <div className="recommendation-notice upload-notice" aria-live="polite">
+              <span className="recommendation-notice-dot upload-notice-dot" />
+              <div className="recommendation-notice-copy">
+                <strong>正在上传图片</strong>
+                <span>请稍候，上传完成后会自动开始绑定并生成推荐。</span>
+              </div>
+            </div>
+          ) : null}
+
           {hasBoundImage && recommendationStatus === "running" ? (
             <div className="recommendation-notice" aria-live="polite">
               <span className="recommendation-notice-dot" />
@@ -1484,7 +1700,7 @@ export default function Home() {
                           displayText: item.title,
                         })
                       }
-                      disabled={!auth?.ok || !sessionId || !hasBoundImage || isStreaming}
+                      disabled={!auth?.ok || !sessionId || !hasBoundImage || isTurnBusy || isUploadingImage}
                     >
                       <div className="suggestion-title">
                         <span className="suggestion-index">{item.index}.</span>
@@ -1542,6 +1758,7 @@ export default function Home() {
                   className="add-button"
                   aria-label="upload image"
                   onClick={handleSelectImage}
+                  disabled={isUploadingImage}
                 >
                   <img src={COMPOSER_ADD_ICON} alt="" className="add-button-icon" />
                 </button>
@@ -1590,7 +1807,7 @@ export default function Home() {
                   aria-label="send"
                   type="button"
                   onClick={() => void (activeTurnId ? handleCancel() : handleSend())}
-                  disabled={!canSendMessage}
+                  disabled={!canUseSendButton}
                 >
                   <span className="send-button-shadow" />
                   <span className="send-icon-wrap">
