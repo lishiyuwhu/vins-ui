@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 type Recommendation = {
   id: string;
@@ -221,6 +221,56 @@ function mergeTurnMessage(messages: ChatMessage[], turn: TurnRecord) {
       imageUrl: turn.output_img_url ?? undefined,
     },
   ];
+}
+
+function hasMatchingUserMessage(
+  messages: ChatMessage[],
+  text: string,
+  imageUrl?: string,
+) {
+  return messages.some(
+    (message) =>
+      message.role === "user" &&
+      message.text === text &&
+      (!imageUrl || message.imageUrl === imageUrl),
+  );
+}
+
+function mergeSessionTurnMessages(
+  messages: ChatMessage[],
+  turns: TurnRecord[],
+  currentImgUrl?: string | null,
+) {
+  const nextMessages = messages.length > 0 ? [...messages] : buildMessagesFromTurns([], "");
+  let fallbackInputImageUrl = currentImgUrl ?? "";
+
+  turns.forEach((turn) => {
+    const userText = turn.user_cmd?.trim();
+    const inputImageUrl = turn.input_img_url || fallbackInputImageUrl || undefined;
+
+    if (
+      userText &&
+      !nextMessages.some((message) => message.id === `${turn.turn_id}-user`) &&
+      !hasMatchingUserMessage(nextMessages, userText, inputImageUrl)
+    ) {
+      nextMessages.push({
+        id: `${turn.turn_id}-user`,
+        role: "user",
+        label: USER_NAME,
+        text: userText,
+        imageUrl: inputImageUrl,
+      });
+    }
+
+    const mergedMessages = mergeTurnMessage(nextMessages, turn);
+    nextMessages.splice(0, nextMessages.length, ...mergedMessages);
+
+    if (turn.output_img_url) {
+      fallbackInputImageUrl = turn.output_img_url;
+    }
+  });
+
+  return nextMessages;
 }
 
 function readFileAsDataUrl(file: File) {
@@ -465,6 +515,11 @@ export default function Home() {
     () => messages.some((message) => message.role === "user"),
     [messages],
   );
+  const activeProgressAfterMessageId = useMemo(() => {
+    if (!isStreaming) return "";
+
+    return [...messages].reverse().find((message) => message.role === "user")?.id ?? "";
+  }, [isStreaming, messages]);
 
   const showUploadedPreview = useMemo(
     () =>
@@ -506,7 +561,8 @@ export default function Home() {
       dismissedRecommendationIds:
         payload.turns && payload.turns.length > 0 ? [HIDE_ALL_RECOMMENDATIONS_KEY] : [],
       activeTurnId: payload.active_turn_id ?? "",
-      messages: buildMessagesFromTurns(
+      messages: mergeSessionTurnMessages(
+        conversation.messages,
         payload.turns ?? [],
         conversation.uploadedImageUrl || payload.current_img_url,
       ),
@@ -1203,111 +1259,110 @@ export default function Home() {
         ) : null}
 
         <section className="chat-stream">
-          {isStreaming ? (
-            <article className="message">
-              <div className="message-label">
-                <span className="message-dot" />
-                <span>{AGENT_NAME}</span>
-              </div>
-              <div className="progress-ticker" aria-live="polite">
-                <span className="progress-ticker-icon" />
-                <div className="progress-ticker-track">
-                  <div className="progress-ticker-copy">
-                    <span>{statusText}</span>
-                    <span>{statusText}</span>
-                    <span>{statusText}</span>
-                  </div>
-                </div>
-              </div>
-            </article>
-          ) : null}
-
           {messages.map((message) => {
             const isUser = message.role === "user";
             const isWelcomeMessage = message.id === "assistant-welcome";
             const hideAssistantText =
-              !isUser &&
-              Boolean(message.imageUrl) &&
-              /^Apply the recommended style from rec_/i.test(message.text);
+              !isUser && Boolean(message.imageUrl);
 
             if (isWelcomeMessage && (showUploadedPreview || hasUserMessages)) {
               return null;
             }
 
             return (
-              <article
-                key={message.id}
-                className={
-                  isUser
-                    ? "message message-user"
-                    : isWelcomeMessage
-                      ? "message message-welcome"
-                    : "message"
-                }
-              >
-                {!isWelcomeMessage ? (
-                  <div className={isUser ? "message-label message-label-user" : "message-label"}>
-                    {!isUser ? <span className="message-dot" /> : null}
-                    <span>{message.label}</span>
-                    {isUser ? <span className="message-dot user-dot" /> : null}
-                  </div>
-                ) : null}
+              <Fragment key={message.id}>
+                <article
+                  className={
+                    isUser
+                      ? "message message-user"
+                      : isWelcomeMessage
+                        ? "message message-welcome"
+                      : "message"
+                  }
+                >
+                  {!isWelcomeMessage ? (
+                    <div className={isUser ? "message-label message-label-user" : "message-label"}>
+                      {!isUser ? <span className="message-dot" /> : null}
+                      <span>{message.label}</span>
+                      {isUser ? <span className="message-dot user-dot" /> : null}
+                    </div>
+                  ) : null}
 
-                {isUser ? (
-                  <div className="user-stack">
-                    {message.imageUrl ? (
-                      <div className="reference-card">
-                        <img
-                          src={message.imageUrl}
-                          alt="reference"
-                          className="reference-image"
-                        />
-                      </div>
-                    ) : null}
-
-                    <div className="user-bubble">{message.text}</div>
-                  </div>
-                ) : (
-                  <div
-                    className={
-                      isWelcomeMessage
-                        ? "assistant-response assistant-response-welcome"
-                        : "assistant-response"
-                    }
-                  >
-                    {!hideAssistantText ? (
-                      <div
-                        className={
-                          isWelcomeMessage
-                            ? "assistant-copy assistant-copy-welcome"
-                            : "assistant-copy"
-                        }
-                      >
-                        {message.text}
-                      </div>
-                    ) : null}
-                    {message.imageUrl ? (
-                        <div className="assistant-image-frame">
+                  {isUser ? (
+                    <div className="user-stack">
+                      {message.imageUrl ? (
+                        <div className="reference-card">
                           <img
                             src={message.imageUrl}
-                            alt="generated result"
-                            className="assistant-image"
-                            onClick={() => setPreviewImageUrl(message.imageUrl ?? "")}
+                            alt="reference"
+                            className="reference-image"
                           />
-                          <a
-                            href={message.imageUrl}
-                            download={uploadedPreviewName}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="assistant-image-download"
-                          >
-                            下载
-                          </a>
                         </div>
                       ) : null}
+
+                      <div className="user-bubble">{message.text}</div>
                     </div>
-                )}
-              </article>
+                  ) : (
+                    <div
+                      className={
+                        isWelcomeMessage
+                          ? "assistant-response assistant-response-welcome"
+                          : "assistant-response"
+                      }
+                    >
+                      {!hideAssistantText ? (
+                        <div
+                          className={
+                            isWelcomeMessage
+                              ? "assistant-copy assistant-copy-welcome"
+                              : "assistant-copy"
+                          }
+                        >
+                          {message.text}
+                        </div>
+                      ) : null}
+                      {message.imageUrl ? (
+                          <div className="assistant-image-frame">
+                            <img
+                              src={message.imageUrl}
+                              alt="generated result"
+                              className="assistant-image"
+                              onClick={() => setPreviewImageUrl(message.imageUrl ?? "")}
+                            />
+                            <a
+                              href={message.imageUrl}
+                              download={uploadedPreviewName}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="assistant-image-download"
+                            >
+                              下载
+                            </a>
+                          </div>
+                        ) : null}
+                      </div>
+                  )}
+                </article>
+
+                {message.id === activeProgressAfterMessageId ? (
+                  <article className="message">
+                    <div className="message-label">
+                      <span className="message-dot" />
+                      <span>{AGENT_NAME}</span>
+                    </div>
+                    <div className="progress-ticker" aria-live="polite">
+                      <span className="progress-ticker-icon" />
+                      <div className="progress-ticker-track">
+                        <div className="progress-ticker-copy">
+                          <span>{statusText}</span>
+                          <span>{statusText}</span>
+                          <span>{statusText}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                ) : null}
+              </Fragment>
             );
           })}
         </section>
