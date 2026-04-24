@@ -1903,7 +1903,7 @@ button {
 }
 
 .reference-card {
-  width: 400px;
+  width: min(400px, 40vw, 100%);
   padding: 0;
   border: 0;
   border-radius: 16px;
@@ -1912,10 +1912,13 @@ button {
 }
 
 .reference-image {
-  width: 400px;
-  height: 400px;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(520px, 56vh);
   border: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: 12px;
+  object-fit: contain;
 }
 
 .user-bubble {
@@ -1934,15 +1937,17 @@ button {
 }
 
 .assistant-image-frame {
-  width: 400px;
+  width: min(400px, 40vw, 100%);
   border-radius: 12px;
 }
 
 .assistant-image {
-  width: 400px;
-  height: 400px;
-  aspect-ratio: 1 / 1;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(520px, 56vh);
   border-radius: 12px;
+  object-fit: contain;
 }
 
 .command-zone {
@@ -2199,22 +2204,25 @@ button {
 }
 
 .uploaded-preview-card {
-  width: 400px;
+  width: min(400px, 40vw, 100%);
 }
 
 .uploaded-preview-frame {
-  width: 400px;
+  width: min(400px, 40vw, 100%);
   padding: 0;
   border-radius: 12px;
   border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .uploaded-preview-image {
-  width: 398px;
-  height: 398px;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(520px, 56vh);
   margin: 0;
   border: 0;
   border-radius: 12px;
+  object-fit: contain;
 }
 
 .uploaded-preview-name,
@@ -2918,7 +2926,7 @@ button {
 }
 
 .composer-with-suggestions .composer-input-shell {
-  min-height: 72px;
+  min-height: 48px;
   margin-bottom: 6px;
 }
 
@@ -2933,7 +2941,7 @@ button {
 }
 
 .composer-with-suggestions .composer-textarea {
-  min-height: 72px;
+  min-height: 48px;
   font-size: 18px;
   line-height: 1.5;
 }
@@ -3158,7 +3166,7 @@ button {
   }
 
   .composer-with-suggestions .composer-textarea {
-    min-height: 64px;
+    min-height: 44px;
     font-size: 17px;
   }
 }
@@ -3187,7 +3195,7 @@ button {
 
   .composer-with-suggestions .composer-input-shell,
   .composer-with-suggestions .composer-textarea {
-    min-height: 58px;
+    min-height: 42px;
   }
 
   .composer-textarea {

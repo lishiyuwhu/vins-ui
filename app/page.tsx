@@ -109,9 +109,21 @@ const SIDEBAR_EMPTY_ICON =
 const HIDE_ALL_RECOMMENDATIONS_KEY = "__all__";
 const RECOMMENDATION_POLL_INTERVAL_MS = 1500;
 const RECOMMENDATION_POLL_MAX_ATTEMPTS = 40;
+const TURN_RECOVERY_POLL_INTERVAL_MS = 1500;
+const TURN_RECOVERY_POLL_MAX_ATTEMPTS = 40;
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+class TurnStreamError extends Error {
+  turnId: string;
+
+  constructor(message: string, turnId: string) {
+    super(message);
+    this.name = "TurnStreamError";
+    this.turnId = turnId;
+  }
 }
 
 function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | null) {
@@ -679,6 +691,60 @@ export default function Home() {
     }
   }
 
+  async function recoverTurnResult(session: string, turnId: string) {
+    updateConversationBySessionId(session, (conversation) => ({
+      ...conversation,
+      requestError: "",
+      statusText: "连接中断，正在同步结果...",
+    }));
+
+    for (let attempt = 0; attempt < TURN_RECOVERY_POLL_MAX_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        await wait(TURN_RECOVERY_POLL_INTERVAL_MS);
+      }
+
+      const payload = await refreshSession(session);
+      if (!payload) {
+        continue;
+      }
+
+      const turns = payload.turns ?? [];
+      const targetTurn =
+        turns.find((turn) => turn.turn_id === turnId) ??
+        [...turns].reverse().find((turn) => Boolean(turn.output_img_url) || turn.status === "failed");
+
+      if (targetTurn?.output_img_url) {
+        updateConversationBySessionId(session, (conversation) => ({
+          ...conversation,
+          currentImageUrl: targetTurn.output_img_url ?? conversation.currentImageUrl,
+          requestError: "",
+          activeTurnId: "",
+          statusText: "图像编辑完成",
+        }));
+        return true;
+      }
+
+      if (targetTurn?.status === "failed") {
+        updateConversationBySessionId(session, (conversation) => ({
+          ...conversation,
+          activeTurnId: "",
+          requestError: "图像编辑失败",
+          statusText: "执行失败",
+        }));
+        return false;
+      }
+    }
+
+    updateConversationBySessionId(session, (conversation) => ({
+      ...conversation,
+      activeTurnId: "",
+      requestError: "连接中断，暂未同步到结果",
+      statusText: "结果同步超时，请稍后刷新会话",
+    }));
+
+    return false;
+  }
+
   async function consumeTurnStream(response: Response, session: string) {
     const reader = response.body?.getReader();
     if (!reader) {
@@ -689,102 +755,116 @@ export default function Home() {
 
     const decoder = new TextDecoder();
     let buffer = "";
+    let seenTurnId = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split("\n\n");
-      buffer = chunks.pop() ?? "";
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
 
-      for (const chunk of chunks) {
-        const line = chunk
-          .split("\n")
-          .find((item) => item.trim().startsWith("data: "));
-        if (!line) continue;
+        for (const chunk of chunks) {
+          const line = chunk
+            .split("\n")
+            .find((item) => item.trim().startsWith("data: "));
+          if (!line) continue;
 
-        const payload = line.slice(6).trim();
-        if (payload === "[DONE]") {
-          updateConversationBySessionId(session, (conversation) => ({
-            ...conversation,
-            statusText: "本轮完成",
-          }));
-          continue;
-        }
+          const payload = line.slice(6).trim();
+          if (payload === "[DONE]") {
+            updateConversationBySessionId(session, (conversation) => ({
+              ...conversation,
+              statusText: "本轮完成",
+            }));
+            continue;
+          }
 
-        const event = JSON.parse(payload) as
-          | { type: "turn_start"; turn_id: string }
-          | { type: "node_start"; node: string }
-          | { type: "node_complete"; node: string }
-          | { type: "clarify"; question: string }
-          | { type: "quality_check"; passed: boolean }
-          | { type: "turn_complete"; turn_id: string; output_img_url: string }
-          | { type: "turn_error"; error: string };
+          const event = JSON.parse(payload) as
+            | { type: "turn_start"; turn_id: string }
+            | { type: "node_start"; node: string }
+            | { type: "node_complete"; node: string }
+            | { type: "clarify"; question: string }
+            | { type: "quality_check"; passed: boolean }
+            | { type: "turn_complete"; turn_id: string; output_img_url: string }
+            | { type: "turn_error"; error: string };
 
-        switch (event.type) {
-          case "turn_start":
-            updateConversationBySessionId(session, (conversation) => ({
-              ...conversation,
-              activeTurnId: event.turn_id,
-              statusText: "智能体正在分析图片并生成编辑方案",
-            }));
-            break;
-          case "node_start":
-            updateConversationBySessionId(session, (conversation) => ({
-              ...conversation,
-              statusText: `正在处理：${event.node}`,
-            }));
-            break;
-          case "node_complete":
-            updateConversationBySessionId(session, (conversation) => ({
-              ...conversation,
-              statusText: `已完成：${event.node}`,
-            }));
-            break;
-          case "clarify":
-            updateConversationBySessionId(session, (conversation) => ({
-              ...conversation,
-              messages: [
-                ...conversation.messages,
-                {
-                  id: `clarify-${Date.now()}`,
-                  role: "assistant",
-                  label: AGENT_NAME,
-                  text: event.question,
-                },
-              ],
-              statusText: "系统需要进一步澄清",
-            }));
-            break;
-          case "quality_check":
-            updateConversationBySessionId(session, (conversation) => ({
-              ...conversation,
-              statusText: event.passed ? "质量检查通过" : "质量检查未通过",
-            }));
-            break;
-          case "turn_complete":
-            updateConversationBySessionId(session, (conversation) => ({
-              ...conversation,
-              currentImageUrl: event.output_img_url,
-              statusText: "图像编辑完成",
-            }));
-            await refreshSession(session);
-            updateConversationBySessionId(session, (conversation) => ({
-              ...conversation,
-              activeTurnId: "",
-            }));
-            break;
-          case "turn_error":
-            updateConversationBySessionId(session, (conversation) => ({
-              ...conversation,
-              requestError: event.error,
-              statusText: "执行失败",
-              activeTurnId: "",
-            }));
-            break;
+          switch (event.type) {
+            case "turn_start":
+              seenTurnId = event.turn_id;
+              updateConversationBySessionId(session, (conversation) => ({
+                ...conversation,
+                activeTurnId: event.turn_id,
+                statusText: "智能体正在分析图片并生成编辑方案",
+              }));
+              break;
+            case "node_start":
+              updateConversationBySessionId(session, (conversation) => ({
+                ...conversation,
+                statusText: `正在处理：${event.node}`,
+              }));
+              break;
+            case "node_complete":
+              updateConversationBySessionId(session, (conversation) => ({
+                ...conversation,
+                statusText: `已完成：${event.node}`,
+              }));
+              break;
+            case "clarify":
+              updateConversationBySessionId(session, (conversation) => ({
+                ...conversation,
+                messages: [
+                  ...conversation.messages,
+                  {
+                    id: `clarify-${Date.now()}`,
+                    role: "assistant",
+                    label: AGENT_NAME,
+                    text: event.question,
+                  },
+                ],
+                statusText: "系统需要进一步澄清",
+              }));
+              break;
+            case "quality_check":
+              updateConversationBySessionId(session, (conversation) => ({
+                ...conversation,
+                statusText: event.passed ? "质量检查通过" : "质量检查未通过",
+              }));
+              break;
+            case "turn_complete":
+              seenTurnId = event.turn_id;
+              updateConversationBySessionId(session, (conversation) => ({
+                ...conversation,
+                currentImageUrl: event.output_img_url,
+                statusText: "图像编辑完成",
+              }));
+              await refreshSession(session);
+              updateConversationBySessionId(session, (conversation) => ({
+                ...conversation,
+                activeTurnId: "",
+              }));
+              break;
+            case "turn_error":
+              updateConversationBySessionId(session, (conversation) => ({
+                ...conversation,
+                requestError: event.error,
+                statusText: "执行失败",
+                activeTurnId: "",
+              }));
+              break;
+          }
         }
       }
+    } catch (error) {
+      if (seenTurnId) {
+        throw new TurnStreamError(
+          error instanceof Error ? error.message : "流式响应中断",
+          seenTurnId,
+        );
+      }
+
+      throw error;
     }
   }
 
@@ -878,6 +958,13 @@ export default function Home() {
 
       await consumeTurnStream(response, targetSessionId);
     } catch (error) {
+      if (error instanceof TurnStreamError) {
+        const recovered = await recoverTurnResult(targetSessionId, error.turnId);
+        if (recovered) {
+          return;
+        }
+      }
+
       updateConversationBySessionId(targetSessionId, (conversation) => ({
         ...conversation,
         requestError: error instanceof Error ? error.message : "执行失败",
