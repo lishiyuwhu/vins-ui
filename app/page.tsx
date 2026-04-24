@@ -980,7 +980,7 @@ export default function Home() {
     }
 
     if (turn.status === "running") {
-      return turn.current_node ? `正在处理：${turn.current_node}` : "智能体正在分析图片并生成编辑方案";
+      return "智能体正在处理中";
     }
 
     if (turn.status === "cancelled") {
