@@ -107,6 +107,12 @@ const SIDEBAR_AVATAR =
 const SIDEBAR_EMPTY_ICON =
   "https://www.figma.com/api/mcp/asset/127372b4-8f72-4c4e-8a4a-64c766f4f8af";
 const HIDE_ALL_RECOMMENDATIONS_KEY = "__all__";
+const RECOMMENDATION_POLL_INTERVAL_MS = 1500;
+const RECOMMENDATION_POLL_MAX_ATTEMPTS = 40;
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | null) {
   const items: ChatMessage[] = [
@@ -415,20 +421,10 @@ export default function Home() {
     return "VOID_02.PNG";
   }, [uploadedFileName, uploadedImageUrl]);
 
-  const showPendingAgentPreview = useMemo(
-    () =>
-      Boolean(
-        hasUserMessages &&
-          uploadedImageUrl &&
-          !messages.some((message) => message.role === "assistant" && message.imageUrl),
-      ),
-    [hasUserMessages, messages, uploadedImageUrl],
-  );
-
   async function refreshSession(id: string) {
     const response = await fetch(`/api/conversations/${id}`, { cache: "no-store" });
     if (!response.ok) {
-      return;
+      return null;
     }
 
     const payload = (await response.json()) as SessionResponse;
@@ -449,7 +445,64 @@ export default function Home() {
         conversation.uploadedImageUrl || payload.current_img_url,
       ),
     }));
+
+    return payload;
   }
+
+  useEffect(() => {
+    if (!sessionId || recommendationStatus !== "running" || !hasBoundImage) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function pollRecommendations() {
+      for (let attempt = 0; attempt < RECOMMENDATION_POLL_MAX_ATTEMPTS; attempt += 1) {
+        if (cancelled) return;
+
+        if (attempt > 0) {
+          await wait(RECOMMENDATION_POLL_INTERVAL_MS);
+        }
+
+        if (cancelled) return;
+
+        const payload = await refreshSession(sessionId);
+        if (!payload) {
+          continue;
+        }
+
+        if (payload.recommendation_status === "succeeded") {
+          updateConversationBySessionId(sessionId, (conversation) => ({
+            ...conversation,
+            statusText: "已生成推荐指令",
+          }));
+          return;
+        }
+
+        if (payload.recommendation_status === "failed") {
+          updateConversationBySessionId(sessionId, (conversation) => ({
+            ...conversation,
+            requestError: payload.recommendation_error || "推荐生成失败",
+            statusText: "推荐生成失败",
+          }));
+          return;
+        }
+      }
+
+      if (!cancelled) {
+        updateConversationBySessionId(sessionId, (conversation) => ({
+          ...conversation,
+          statusText: "推荐生成时间较长，可稍后刷新会话",
+        }));
+      }
+    }
+
+    void pollRecommendations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasBoundImage, recommendationStatus, sessionId]);
 
   async function syncAuthState() {
     const response = await fetch("/api/auth/me", { cache: "no-store" });
@@ -605,10 +658,15 @@ export default function Home() {
         }));
       }
 
-      await refreshSession(targetSessionId);
+      const refreshedSession = await refreshSession(targetSessionId);
       updateConversationBySessionId(targetSessionId, (conversation) => ({
         ...conversation,
-        statusText: "图片已绑定，可直接输入指令或等待推荐",
+        statusText:
+          refreshedSession?.recommendation_status === "succeeded"
+            ? "已生成推荐指令"
+            : refreshedSession?.recommendation_status === "failed"
+              ? "推荐生成失败"
+              : "图片已绑定，正在生成推荐指令",
       }));
     } catch (error) {
       updateActiveConversation((conversation) => ({
@@ -1071,23 +1129,6 @@ export default function Home() {
         ) : null}
 
         <section className="chat-stream">
-          {showPendingAgentPreview ? (
-            <article className="message">
-              <div className="message-label">
-                <span>{AGENT_NAME}</span>
-              </div>
-              <div className="assistant-response assistant-response-preview">
-                <div className="assistant-image-frame">
-                  <img
-                    src={uploadedImageUrl}
-                    alt="uploaded reference"
-                    className="assistant-image"
-                  />
-                </div>
-              </div>
-            </article>
-          ) : null}
-
           {isStreaming ? (
             <article className="message">
               <div className="message-label">
