@@ -1,6 +1,14 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+} from "react";
 
 type Recommendation = {
   id: string;
@@ -286,6 +294,20 @@ function readFileAsDataUrl(file: File) {
     reader.onerror = () => reject(new Error("读取图片失败"));
     reader.readAsDataURL(file);
   });
+}
+
+function getFirstImageFile(files: FileList | File[]) {
+  return Array.from(files).find((file) => file.type.startsWith("image/")) ?? null;
+}
+
+function hasImageTransferData(dataTransfer: DataTransfer) {
+  if (getFirstImageFile(dataTransfer.files)) {
+    return true;
+  }
+
+  return Array.from(dataTransfer.items).some(
+    (item) => item.kind === "file" && item.type.startsWith("image/"),
+  );
 }
 
 export default function Home() {
@@ -710,17 +732,20 @@ export default function Home() {
     fileInputRef.current?.click();
   }
 
-  async function handleFileChange(event: { target: HTMLInputElement }) {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
+  async function handleImageFileUpload(file: File) {
     const targetSessionId = sessionId;
 
     try {
+      if (!auth?.ok) {
+        throw new Error("请先登录");
+      }
+
       if (!targetSessionId) {
         throw new Error("当前没有可用的绘画会话");
+      }
+
+      if (isStreaming) {
+        throw new Error("当前正在执行编辑，请等待完成后再上传图片");
       }
 
       updateActiveConversation((conversation) => ({
@@ -803,9 +828,50 @@ export default function Home() {
         requestError: error instanceof Error ? error.message : "读取图片失败，请重新上传",
         statusText: "图片处理准备失败",
       }));
+    }
+  }
+
+  async function handleFileChange(event: { target: HTMLInputElement }) {
+    const file = getFirstImageFile(event.target.files ? Array.from(event.target.files) : []);
+    if (!file) {
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      await handleImageFileUpload(file);
     } finally {
       event.target.value = "";
     }
+  }
+
+  function handleWorkspacePaste(event: ClipboardEvent<HTMLElement>) {
+    const file = getFirstImageFile(event.clipboardData.files);
+    if (!file) {
+      return;
+    }
+
+    event.preventDefault();
+    void handleImageFileUpload(file);
+  }
+
+  function handleWorkspaceDragOver(event: DragEvent<HTMLElement>) {
+    if (!hasImageTransferData(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleWorkspaceDrop(event: DragEvent<HTMLElement>) {
+    const file = getFirstImageFile(event.dataTransfer.files);
+    if (!file) {
+      return;
+    }
+
+    event.preventDefault();
+    void handleImageFileUpload(file);
   }
 
   function getTurnStatusText(turn: TurnRecord) {
@@ -1154,7 +1220,12 @@ export default function Home() {
         </div>
       </aside>
 
-      <section className="workspace">
+      <section
+        className="workspace"
+        onPaste={handleWorkspacePaste}
+        onDragOver={handleWorkspaceDragOver}
+        onDrop={handleWorkspaceDrop}
+      >
         <header className="topbar">
           <div className="topbar-group">
             <h1>BluePixel Studio</h1>
