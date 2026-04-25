@@ -228,6 +228,14 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function buildImageDownloadHref(imageUrl: string) {
+  const params = new URLSearchParams({
+    url: imageUrl,
+  });
+
+  return `/api/download-image?${params.toString()}`;
+}
+
 function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | null) {
   const items: ChatMessage[] = [
     {
@@ -1703,10 +1711,7 @@ export default function Home() {
                               onClick={() => setPreviewImageUrl(message.imageUrl ?? "")}
                             />
                             <a
-                              href={message.imageUrl}
-                              download={uploadedPreviewName}
-                              target="_blank"
-                              rel="noreferrer"
+                              href={buildImageDownloadHref(message.imageUrl)}
                               className="assistant-image-download"
                             >
                               下载
