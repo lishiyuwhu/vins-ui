@@ -2,6 +2,7 @@
 
 import {
   Fragment,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -242,12 +243,14 @@ function ImagePreview({
   className = "",
   canDownload = false,
   onPreview,
+  onLoad,
 }: {
   src: string;
   alt: string;
   className?: string;
   canDownload?: boolean;
   onPreview: (imageUrl: string) => void;
+  onLoad?: () => void;
 }) {
   return (
     <div className={`assistant-image-frame${className ? ` ${className}` : ""}`}>
@@ -256,6 +259,7 @@ function ImagePreview({
         alt={alt}
         className="assistant-image"
         onClick={() => onPreview(src)}
+        onLoad={onLoad}
       />
       {canDownload ? (
         <a href={buildImageDownloadHref(src)} className="assistant-image-download">
@@ -472,6 +476,7 @@ export default function Home() {
   const [modeNoticeVisible, setModeNoticeVisible] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const workspaceRef = useRef<HTMLElement | null>(null);
   const initializedSessionRef = useRef(false);
   const pollingTurnRef = useRef("");
   const startedRecommendationSessionsRef = useRef(new Set<string>());
@@ -514,6 +519,20 @@ export default function Home() {
     activeQueuePosition,
     activeQueueSize,
   );
+
+  const scrollWorkspaceToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const workspace = workspaceRef.current;
+    if (!workspace) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      workspace.scrollTo({
+        top: workspace.scrollHeight,
+        behavior,
+      });
+    });
+  }, []);
 
   function updateConversation(
     id: string,
@@ -740,6 +759,27 @@ export default function Home() {
 
     return [...messages].reverse().find((message) => message.role === "user")?.id ?? "";
   }, [isTurnBusy, messages]);
+  const latestMessageKey = useMemo(() => {
+    const latestMessage = messages.at(-1);
+    return latestMessage
+      ? `${latestMessage.id}:${latestMessage.role}:${latestMessage.imageUrl ?? ""}:${latestMessage.text}`
+      : "";
+  }, [messages]);
+
+  useEffect(() => {
+    if (!hasUserMessages) {
+      return;
+    }
+
+    scrollWorkspaceToBottom();
+  }, [
+    activeProgressAfterMessageId,
+    activeTurnStatus,
+    hasUserMessages,
+    latestMessageKey,
+    scrollWorkspaceToBottom,
+    statusText,
+  ]);
 
   const showUploadedPreview = useMemo(
     () =>
@@ -1567,6 +1607,7 @@ export default function Home() {
       </aside>
 
       <section
+        ref={workspaceRef}
         className={isUploadingImage ? "workspace is-uploading-image" : "workspace"}
         onPaste={handleWorkspacePaste}
         onDragOver={handleWorkspaceDragOver}
@@ -1754,6 +1795,7 @@ export default function Home() {
                             alt="generated result"
                             canDownload
                             onPreview={setPreviewImageUrl}
+                            onLoad={() => scrollWorkspaceToBottom("auto")}
                           />
                         ) : null}
                       </div>
