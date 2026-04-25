@@ -469,11 +469,13 @@ export default function Home() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [previewImageUrl, setPreviewImageUrl] = useState("");
+  const [modeNoticeVisible, setModeNoticeVisible] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const initializedSessionRef = useRef(false);
   const pollingTurnRef = useRef("");
   const startedRecommendationSessionsRef = useRef(new Set<string>());
+  const modeNoticeTimerRef = useRef<number | null>(null);
   const activeConversation = useMemo(
     () => conversations.find((item) => item.id === activeConversationId) ?? null,
     [activeConversationId, conversations],
@@ -488,8 +490,8 @@ export default function Home() {
   const dismissedRecommendationIds = activeConversation?.dismissedRecommendationIds ?? [];
   const messages = activeConversation?.messages ?? buildMessagesFromTurns([], "");
   const userCmd = activeConversation?.userCmd ?? "";
-  const externalEnabled = activeConversation?.externalEnabled ?? false;
-  const thinkingEnabled = activeConversation?.thinkingEnabled ?? false;
+  const externalEnabled = false;
+  const thinkingEnabled = true;
   const statusText = activeConversation?.statusText ?? "准备进入场景绘画";
   const activeTurnId = activeConversation?.activeTurnId ?? "";
   const activeTurnStatus = activeConversation?.activeTurnStatus ?? "";
@@ -614,7 +616,7 @@ export default function Home() {
         statusText: "空绘画已创建，等待上传图片",
         requestError: "",
         externalEnabled: false,
-        thinkingEnabled: false,
+        thinkingEnabled: true,
       };
       setConversations((prev) => [...prev, nextConversation]);
       setActiveConversationId(localId);
@@ -642,7 +644,7 @@ export default function Home() {
           statusText: "创建空绘画失败",
           requestError: error instanceof Error ? error.message : "创建会话失败",
           externalEnabled: false,
-          thinkingEnabled: false,
+          thinkingEnabled: true,
         },
       ]);
       setActiveConversationId(localId);
@@ -674,6 +676,26 @@ export default function Home() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [previewImageUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (modeNoticeTimerRef.current !== null) {
+        window.clearTimeout(modeNoticeTimerRef.current);
+      }
+    };
+  }, []);
+
+  function showPendingModeNotice() {
+    setModeNoticeVisible(true);
+    if (modeNoticeTimerRef.current !== null) {
+      window.clearTimeout(modeNoticeTimerRef.current);
+    }
+
+    modeNoticeTimerRef.current = window.setTimeout(() => {
+      setModeNoticeVisible(false);
+      modeNoticeTimerRef.current = null;
+    }, 1600);
+  }
 
   const visibleSuggestions = useMemo(() => {
     const hasUserMessages = messages.some((message) => message.role === "user");
@@ -1892,36 +1914,33 @@ export default function Home() {
                     className={externalEnabled ? "mode-button is-active" : "mode-button"}
                     type="button"
                     aria-pressed={externalEnabled}
-                    onClick={() =>
-                      updateActiveConversation((conversation) => ({
-                        ...conversation,
-                        externalEnabled: !conversation.externalEnabled,
-                      }))
-                    }
+                    onClick={showPendingModeNotice}
                   >
                     <img src={COMPOSER_WEB_ICON} alt="" className="mode-icon-image mode-icon-web" />
-                    <span>Web</span>
+                    <span>搜索</span>
                     <span className="mode-toggle-indicator" aria-hidden="true" />
                   </button>
                   <button
                     className={thinkingEnabled ? "mode-button is-active" : "mode-button"}
                     type="button"
                     aria-pressed={thinkingEnabled}
-                    onClick={() =>
-                      updateActiveConversation((conversation) => ({
-                        ...conversation,
-                        thinkingEnabled: !conversation.thinkingEnabled,
-                      }))
-                    }
+                    onClick={showPendingModeNotice}
                   >
                     <img
                       src={COMPOSER_THINKING_ICON}
                       alt=""
                       className="mode-icon-image mode-icon-thinking"
                     />
-                    <span>Thinking</span>
+                    <span>思考</span>
                     <span className="mode-toggle-indicator" aria-hidden="true" />
                   </button>
+                  <span
+                    className={modeNoticeVisible ? "mode-pending-notice is-visible" : "mode-pending-notice"}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    待接入
+                  </span>
                 </div>
               </div>
 

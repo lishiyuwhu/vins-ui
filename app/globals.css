@@ -3028,6 +3028,7 @@ button {
 }
 
 .mode-row {
+  position: relative;
   gap: 8px;
 }
 
@@ -3116,6 +3117,33 @@ button {
 .mode-button.is-active .mode-toggle-indicator::after {
   background: #2563eb;
   transform: scale(1);
+}
+
+.mode-pending-notice {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 3;
+  padding: 6px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.mode-pending-notice.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .send-button {
