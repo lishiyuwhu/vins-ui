@@ -111,6 +111,9 @@ type LocalConversation = {
 const AGENT_NAME = "VINS Agent";
 const USER_NAME = "用户";
 const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
+const IMAGE_UPLOAD_API_URL =
+  process.env.NEXT_PUBLIC_IMAGE_UPLOAD_API_URL ||
+  "https://bluepixel.vivo.com.cn/api/upload-image";
 const TEST_API_KEY = "key-mockui-yZaAbBcCdDeEfFgG";
 const TOPBAR_MESSAGE_ICON =
   "https://www.figma.com/api/mcp/asset/5b754da6-8524-4ebd-a517-c5c3445c6d22";
@@ -666,6 +669,21 @@ export default function Home() {
     return payload;
   }
 
+  // Lightweight poll: only updates recommendations and recommendationStatus.
+  // Does NOT touch messages, currentImageUrl, dismissedRecommendationIds, or turn state.
+  // Use this instead of refreshSession whenever only recommendation data is needed.
+  async function refreshRecommendationsOnly(id: string) {
+    const response = await fetch(`/api/conversations/${id}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as SessionResponse;
+    updateConversationBySessionId(id, (conversation) => ({
+      ...conversation,
+      recommendations: payload.recommendations ?? [],
+      recommendationStatus: payload.recommendation_status ?? "idle",
+    }));
+    return payload;
+  }
+
   useEffect(() => {
     if (!sessionId || recommendationStatus !== "running" || !hasBoundImage) {
       return;
@@ -683,7 +701,7 @@ export default function Home() {
 
         if (cancelled) return;
 
-        const payload = await refreshSession(sessionId);
+        const payload = await refreshRecommendationsOnly(sessionId);
         if (!payload) {
           continue;
         }
@@ -826,10 +844,11 @@ export default function Home() {
         statusText: "正在上传图片",
       }));
       const dataUrl = await readFileAsDataUrl(file);
-      const uploadResponse = await fetch("/api/upload-image-base64", {
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      const uploadResponse = await fetch(IMAGE_UPLOAD_API_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_base64: dataUrl }),
+        body: uploadFormData,
       });
       const uploadPayload = (await uploadResponse.json().catch(() => ({ error: "上传失败" }))) as {
         img_url?: string;
@@ -840,6 +859,8 @@ export default function Home() {
         throw new Error(uploadPayload.error || "图片上传失败");
       }
 
+      // Reset to a clean slate: clear prior messages/turns, ready for fresh interaction
+      // with the new image. dismissedRecommendationIds=[] lets new recommendations appear.
       updateActiveConversation((conversation) => ({
         ...conversation,
         uploadedImageUrl: dataUrl,
@@ -848,12 +869,13 @@ export default function Home() {
         originalImageUrl: uploadPayload.img_url ?? "",
         messages: buildMessagesFromTurns([], dataUrl),
         recommendations: [],
-        recommendationStatus: "running",
+        recommendationStatus: "idle",
         dismissedRecommendationIds: [],
         activeTurnId: "",
         activeTurnStatus: "",
         activeQueuePosition: null,
         activeQueueSize: null,
+        requestError: "",
         statusText: "正在绑定图片",
       }));
 
@@ -867,9 +889,12 @@ export default function Home() {
         throw new Error(bindPayload.error || "绑定图片失败");
       }
 
+      // Kick off recommendation generation; the recommendation polling useEffect
+      // will take over from here using refreshRecommendationsOnly (safe, non-destructive).
       updateConversationBySessionId(targetSessionId, (conversation) => ({
         ...conversation,
-        statusText: "正在生成推荐指令",
+        recommendationStatus: "running",
+        statusText: "图片已绑定，正在生成推荐指令",
       }));
       const recommendResponse = await fetch(`/api/conversations/${targetSessionId}/recommend`, {
         method: "POST",
@@ -880,23 +905,13 @@ export default function Home() {
         const recommendPayload = await recommendResponse
           .json()
           .catch(() => ({ error: "推荐任务启动失败" }));
-        updateActiveConversation((conversation) => ({
+        updateConversationBySessionId(targetSessionId, (conversation) => ({
           ...conversation,
           recommendationStatus: "failed",
           requestError: recommendPayload.error || "推荐任务启动失败",
+          statusText: "推荐生成失败",
         }));
       }
-
-      const refreshedSession = await refreshSession(targetSessionId);
-      updateConversationBySessionId(targetSessionId, (conversation) => ({
-        ...conversation,
-        statusText:
-          refreshedSession?.recommendation_status === "succeeded"
-            ? "已生成推荐指令"
-            : refreshedSession?.recommendation_status === "failed"
-              ? "推荐生成失败"
-              : "图片已绑定，正在生成推荐指令",
-      }));
     } catch (error) {
       updateActiveConversation((conversation) => ({
         ...conversation,
