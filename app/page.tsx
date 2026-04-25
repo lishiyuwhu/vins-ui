@@ -108,6 +108,16 @@ type LocalConversation = {
   thinkingEnabled: boolean;
 };
 
+type SidebarIconName =
+  | "new"
+  | "spark"
+  | "more"
+  | "chat"
+  | "about"
+  | "download"
+  | "gift"
+  | "chevron";
+
 const AGENT_NAME = "VINS Agent";
 const USER_NAME = "用户";
 const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
@@ -129,22 +139,8 @@ const COMPOSER_THINKING_ICON =
   "https://www.figma.com/api/mcp/asset/09e5c101-49fb-45a2-b168-8ff4c52353bf";
 const COMPOSER_SEND_ICON =
   "https://www.figma.com/api/mcp/asset/f4cd65f9-a4ce-494c-afbd-5c5f2c1e461c";
-const SIDEBAR_NEW_ICON =
-  "https://www.figma.com/api/mcp/asset/4676ecbe-79a6-4947-977e-96196770c3d2";
-const SIDEBAR_HISTORY_ICON =
-  "https://www.figma.com/api/mcp/asset/f0d5c7c3-778b-40d1-8059-7272263af11e";
-const SIDEBAR_CHAT_ICON =
-  "https://www.figma.com/api/mcp/asset/642ef86f-98fa-44ef-a997-e9a9978042e0";
-const SIDEBAR_DELETE_ICON =
-  "https://www.figma.com/api/mcp/asset/0eee08d7-db1b-4a89-9d4b-c1ea3d222ef9";
-const SIDEBAR_HELP_ICON =
-  "https://www.figma.com/api/mcp/asset/ad53aa73-dfaf-4dff-ba11-3a6ea6571dd8";
-const SIDEBAR_STATUS_ICON =
-  "https://www.figma.com/api/mcp/asset/09877dee-a9e3-42a6-a6f9-c973dd1c734c";
 const SIDEBAR_AVATAR =
   "https://www.figma.com/api/mcp/asset/0448d584-9c63-498d-97e3-6972835894bb";
-const SIDEBAR_EMPTY_ICON =
-  "https://www.figma.com/api/mcp/asset/127372b4-8f72-4c4e-8a4a-64c766f4f8af";
 const HIDE_ALL_RECOMMENDATIONS_KEY = "__all__";
 const TURN_PROGRESS_COPY = "智能体正在分析图片并在生成中";
 const RECOMMENDATION_POLL_INTERVAL_MS = 1500;
@@ -153,6 +149,80 @@ const TURN_POLL_INTERVAL_MS = 1500;
 const TURN_POLL_MAX_ATTEMPTS = 120;
 const BUILD_COMMIT_SHA =
   process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "dev-local";
+
+function SidebarIcon({
+  name,
+  className = "",
+}: {
+  name: SidebarIconName;
+  className?: string;
+}) {
+  return (
+    <svg
+      className={`sidebar-line-icon ${className}`}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {name === "new" ? (
+        <>
+          <path d="M12 20h7" />
+          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+        </>
+      ) : null}
+      {name === "spark" ? (
+        <>
+          <path d="M5.5 8.5a3.5 3.5 0 0 1 3-3.46" />
+          <path d="M18.5 15.5a3.5 3.5 0 0 1-3 3.46" />
+          <path d="M4.8 16.2c1.3-3.8 3.6-5.4 7.1-3.8 3.4 1.5 5.7 1 7.3-3.1" />
+          <path d="M4.8 16.2 4 11.3l4.4.9" />
+          <path d="M19.2 7.8 20 12.7l-4.4-.9" />
+        </>
+      ) : null}
+      {name === "more" ? (
+        <>
+          <rect width="6" height="6" x="4" y="4" rx="1.7" />
+          <rect width="6" height="6" x="14" y="4" rx="1.7" />
+          <rect width="6" height="6" x="4" y="14" rx="1.7" />
+          <rect width="6" height="6" x="14" y="14" rx="1.7" />
+        </>
+      ) : null}
+      {name === "chat" ? (
+        <>
+          <path d="M6.6 18.3c-2-1.2-3.1-3-3.1-5.3C3.5 8.1 7 5 12 5s8.5 3.1 8.5 8-3.5 8-8.5 8a10 10 0 0 1-3.2-.5L5 21.5Z" />
+          <path d="M8.5 12.5h.01" />
+          <path d="M12 12.5h.01" />
+          <path d="M15.5 12.5h.01" />
+        </>
+      ) : null}
+      {name === "about" ? (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 10.8v5.4" />
+          <path d="M12 7.6h.01" />
+        </>
+      ) : null}
+      {name === "download" ? (
+        <>
+          <path d="M12 4v10" />
+          <path d="m8.5 10.5 3.5 3.5 3.5-3.5" />
+          <path d="M5 15.5V20h14v-4.5" />
+        </>
+      ) : null}
+      {name === "gift" ? (
+        <>
+          <path d="M4 10h16" />
+          <path d="M5.5 10v10h13V10" />
+          <path d="M12 10v10" />
+          <path d="M4.8 6.8h14.4V10H4.8z" />
+          <path d="M12 6.8C10.2 4 7.5 3.6 7 5.2c-.5 1.8 2.1 2.4 5 1.6Z" />
+          <path d="M12 6.8c1.8-2.8 4.5-3.2 5-1.6.5 1.8-2.1 2.4-5 1.6Z" />
+        </>
+      ) : null}
+      {name === "chevron" ? <path d="m9 6 6 6-6 6" /> : null}
+    </svg>
+  );
+}
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -365,6 +435,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const initializedSessionRef = useRef(false);
   const pollingTurnRef = useRef("");
+  const startedRecommendationSessionsRef = useRef(new Set<string>());
   const activeConversation = useMemo(
     () => conversations.find((item) => item.id === activeConversationId) ?? null,
     [activeConversationId, conversations],
@@ -679,7 +750,12 @@ export default function Home() {
     updateConversationBySessionId(id, (conversation) => ({
       ...conversation,
       recommendations: payload.recommendations ?? [],
-      recommendationStatus: payload.recommendation_status ?? "idle",
+      recommendationStatus:
+        startedRecommendationSessionsRef.current.has(id) &&
+        conversation.recommendationStatus === "running" &&
+        (payload.recommendation_status === "idle" || !payload.recommendation_status)
+          ? "running"
+          : payload.recommendation_status ?? "idle",
     }));
     return payload;
   }
@@ -707,6 +783,7 @@ export default function Home() {
         }
 
         if (payload.recommendation_status === "succeeded") {
+          startedRecommendationSessionsRef.current.delete(sessionId);
           updateConversationBySessionId(sessionId, (conversation) => ({
             ...conversation,
             statusText: "已生成推荐指令",
@@ -715,6 +792,7 @@ export default function Home() {
         }
 
         if (payload.recommendation_status === "failed") {
+          startedRecommendationSessionsRef.current.delete(sessionId);
           updateConversationBySessionId(sessionId, (conversation) => ({
             ...conversation,
             requestError: payload.recommendation_error || "推荐生成失败",
@@ -893,8 +971,7 @@ export default function Home() {
       // will take over from here using refreshRecommendationsOnly (safe, non-destructive).
       updateConversationBySessionId(targetSessionId, (conversation) => ({
         ...conversation,
-        recommendationStatus: "running",
-        statusText: "图片已绑定，正在生成推荐指令",
+        statusText: "图片已绑定，正在启动推荐生成",
       }));
       const recommendResponse = await fetch(`/api/conversations/${targetSessionId}/recommend`, {
         method: "POST",
@@ -905,14 +982,24 @@ export default function Home() {
         const recommendPayload = await recommendResponse
           .json()
           .catch(() => ({ error: "推荐任务启动失败" }));
+        startedRecommendationSessionsRef.current.delete(targetSessionId);
         updateConversationBySessionId(targetSessionId, (conversation) => ({
           ...conversation,
           recommendationStatus: "failed",
           requestError: recommendPayload.error || "推荐任务启动失败",
           statusText: "推荐生成失败",
         }));
+        return;
       }
+
+      startedRecommendationSessionsRef.current.add(targetSessionId);
+      updateConversationBySessionId(targetSessionId, (conversation) => ({
+        ...conversation,
+        recommendationStatus: "running",
+        statusText: "图片已绑定，正在生成推荐指令",
+      }));
     } catch (error) {
+      startedRecommendationSessionsRef.current.delete(targetSessionId);
       updateActiveConversation((conversation) => ({
         ...conversation,
         requestError: error instanceof Error ? error.message : "读取图片失败，请重新上传",
@@ -1327,25 +1414,40 @@ export default function Home() {
       <aside className="sidebar">
         <div className="sidebar-main">
           <div className="brand">
+            <div className="brand-avatar">
+              <img src={SIDEBAR_AVATAR} alt="" className="brand-avatar-image" />
+            </div>
             <div>
-              <p className="brand-title">BluePixel</p>
-              <p className="brand-subtitle">智能图片处理助手</p>
+              <p className="brand-title">Blue Pixel</p>
             </div>
           </div>
 
-          <button
-            type="button"
-            className="primary-action"
-            onClick={handleCreateEntry}
-            disabled={isCreating || isTurnBusy || !auth?.ok}
-          >
-            <img src={SIDEBAR_NEW_ICON} alt="" className="primary-action-icon" />
-            {isCreating ? "进入中..." : "创建新绘画"}
-          </button>
+          <nav className="sidebar-nav" aria-label="侧边栏导航">
+            <button
+              type="button"
+              className="sidebar-nav-item sidebar-nav-item-active"
+              onClick={handleCreateEntry}
+              disabled={isCreating || isTurnBusy || !auth?.ok}
+            >
+              <SidebarIcon name="new" />
+              <span>{isCreating ? "进入中..." : "新对话"}</span>
+              <kbd className="sidebar-shortcut">⌘ K</kbd>
+            </button>
+
+            <button type="button" className="sidebar-nav-item">
+              <SidebarIcon name="spark" />
+              <span>AI 创作</span>
+            </button>
+
+            <button type="button" className="sidebar-nav-item">
+              <SidebarIcon name="more" />
+              <span>更多</span>
+              <SidebarIcon name="chevron" className="sidebar-nav-chevron" />
+            </button>
+          </nav>
 
           <section className="history-panel">
             <div className="history-heading">
-              <img src={SIDEBAR_HISTORY_ICON} alt="" className="history-heading-image" />
               历史对话
             </div>
 
@@ -1353,9 +1455,6 @@ export default function Home() {
               {sortedConversations.length > 0 ? (
                 sortedConversations.map((conversation) => {
                   const isActive = conversation.id === activeConversationId;
-                  const previewName = conversation.uploadedFileName
-                    ? conversation.uploadedFileName.toUpperCase()
-                    : "等待上传图片...";
 
                   return (
                     <button
@@ -1365,23 +1464,22 @@ export default function Home() {
                       }
                       onClick={() => setActiveConversationId(conversation.id)}
                     >
-                      <img src={SIDEBAR_CHAT_ICON} alt="" className="history-item-image" />
+                      <span className="history-item-icon">
+                        <SidebarIcon name="chat" />
+                      </span>
                       <span className="history-copy">
                         <strong>{conversation.title}</strong>
-                        <span>
-                          {conversation.originalImageUrl ? previewName : "等待上传图片..."}
-                        </span>
                       </span>
-                      <img src={SIDEBAR_DELETE_ICON} alt="" className="history-item-delete" />
                     </button>
                   );
                 })
               ) : (
                 <div className="history-empty">
-                  <img src={SIDEBAR_EMPTY_ICON} alt="" className="history-empty-icon" />
+                  <span className="history-item-icon">
+                    <SidebarIcon name="chat" />
+                  </span>
                   <div className="history-empty-copy">
                     <span>还没有对话记录</span>
-                    <span>点击上方按钮开始</span>
                   </div>
                 </div>
               )}
@@ -1391,30 +1489,20 @@ export default function Home() {
 
         <div className="sidebar-footer">
           <div className="sidebar-meta">
-            <a href={BACKEND_HINT} target="_blank" rel="noreferrer" className="sidebar-meta-link">
-              <img src={SIDEBAR_HELP_ICON} alt="" className="sidebar-meta-icon" />
-              HELP
+            <a href={BACKEND_HINT} target="_blank" rel="noreferrer" className="sidebar-meta-about">
+              <SidebarIcon name="about" />
+              关于
             </a>
-            <a href="#" className="sidebar-meta-link">
-              <img src={SIDEBAR_STATUS_ICON} alt="" className="sidebar-meta-icon sidebar-meta-icon-status" />
-              STATUS
-            </a>
-          </div>
-
-          <div className="profile">
-            <div className="profile-avatar">
-              <img src={SIDEBAR_AVATAR} alt="" className="profile-avatar-image" />
+            <div className="sidebar-meta-actions" aria-hidden="true">
+              <SidebarIcon name="download" />
+              <SidebarIcon name="gift" />
             </div>
-            <div>
-              <p>{auth?.ok ? auth.key_hint : "未登录"}</p>
-              <span>Scene Paint Mode</span>
-            </div>
-            {auth?.ok ? (
-              <button type="button" className="profile-logout" onClick={() => void handleLogout()}>
-                退出
-              </button>
-            ) : null}
           </div>
+          {auth?.ok ? (
+            <button type="button" className="profile-logout" onClick={() => void handleLogout()}>
+              退出
+            </button>
+          ) : null}
         </div>
       </aside>
 
