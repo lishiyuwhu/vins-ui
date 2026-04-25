@@ -236,6 +236,36 @@ function buildImageDownloadHref(imageUrl: string) {
   return `/api/download-image?${params.toString()}`;
 }
 
+function ImagePreview({
+  src,
+  alt,
+  className = "",
+  canDownload = false,
+  onPreview,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  canDownload?: boolean;
+  onPreview: (imageUrl: string) => void;
+}) {
+  return (
+    <div className={`assistant-image-frame${className ? ` ${className}` : ""}`}>
+      <img
+        src={src}
+        alt={alt}
+        className="assistant-image"
+        onClick={() => onPreview(src)}
+      />
+      {canDownload ? (
+        <a href={buildImageDownloadHref(src)} className="assistant-image-download">
+          下载
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | null) {
   const items: ChatMessage[] = [
     {
@@ -1624,17 +1654,12 @@ export default function Home() {
                 <span>{USER_NAME}</span>
                 <span className="uploaded-preview-dot" />
               </div>
-              <div className="uploaded-preview-frame">
-                <button className="uploaded-preview-close" type="button" aria-label="remove image">
-                  ×
-                </button>
-                <img
-                  src={uploadedPreviewImageUrl}
-                  alt="uploaded reference"
-                  className="uploaded-preview-image"
-                />
-                <span className="uploaded-preview-name">{uploadedPreviewName}</span>
-              </div>
+              <ImagePreview
+                src={uploadedPreviewImageUrl}
+                alt={uploadedPreviewName}
+                className="user-image-frame"
+                onPreview={setPreviewImageUrl}
+              />
             </article>
           </section>
         ) : null}
@@ -1672,13 +1697,12 @@ export default function Home() {
                   {isUser ? (
                     <div className="user-stack">
                       {message.imageUrl ? (
-                        <div className="reference-card">
-                          <img
-                            src={message.imageUrl}
-                            alt="reference"
-                            className="reference-image"
-                          />
-                        </div>
+                        <ImagePreview
+                          src={message.imageUrl}
+                          alt="reference"
+                          className="user-image-frame"
+                          onPreview={setPreviewImageUrl}
+                        />
                       ) : null}
 
                       <div className="user-bubble">{message.text}</div>
@@ -1703,20 +1727,12 @@ export default function Home() {
                         </div>
                       ) : null}
                       {message.imageUrl ? (
-                          <div className="assistant-image-frame">
-                            <img
-                              src={message.imageUrl}
-                              alt="generated result"
-                              className="assistant-image"
-                              onClick={() => setPreviewImageUrl(message.imageUrl ?? "")}
-                            />
-                            <a
-                              href={buildImageDownloadHref(message.imageUrl)}
-                              className="assistant-image-download"
-                            >
-                              下载
-                            </a>
-                          </div>
+                          <ImagePreview
+                            src={message.imageUrl}
+                            alt="generated result"
+                            canDownload
+                            onPreview={setPreviewImageUrl}
+                          />
                         ) : null}
                       </div>
                   )}
