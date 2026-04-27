@@ -81,6 +81,7 @@ type ChatMessage =
   | {
       id: string;
       role: "user";
+      kind?: "upload" | "command";
       label: string;
       text: string;
       imageUrl?: string;
@@ -237,6 +238,30 @@ function buildImageDownloadHref(imageUrl: string) {
   return `/api/download-image?${params.toString()}`;
 }
 
+function buildUploadMessage(imageUrl: string): ChatMessage {
+  return {
+    id: `local-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    role: "user",
+    kind: "upload",
+    label: USER_NAME,
+    text: "用户上传图片",
+    imageUrl,
+  };
+}
+
+function isUserCommandMessage(message: ChatMessage) {
+  return message.role === "user" && message.kind !== "upload";
+}
+
+function hasCommandAfterLatestUpload(messages: ChatMessage[]) {
+  const latestUploadIndex = messages.findLastIndex(
+    (message) => message.role === "user" && message.kind === "upload",
+  );
+  const messagesToCheck = latestUploadIndex >= 0 ? messages.slice(latestUploadIndex + 1) : messages;
+
+  return messagesToCheck.some(isUserCommandMessage);
+}
+
 function ImagePreview({
   src,
   alt,
@@ -287,6 +312,7 @@ function buildMessagesFromTurns(turns: TurnRecord[], currentImgUrl?: string | nu
       items.push({
         id: `${turn.turn_id}-user`,
         role: "user",
+        kind: "command",
         label: USER_NAME,
         text: turn.user_cmd,
         imageUrl: turn.input_img_url || fallbackInputImageUrl || undefined,
@@ -401,6 +427,7 @@ function mergeSessionTurnMessages(
       nextMessages.push({
         id: `${turn.turn_id}-user`,
         role: "user",
+        kind: "command",
         label: USER_NAME,
         text: userText,
         imageUrl: inputImageUrl,
@@ -717,10 +744,10 @@ export default function Home() {
   }
 
   const visibleSuggestions = useMemo(() => {
-    const hasUserMessages = messages.some((message) => message.role === "user");
+    const hasCommandMessagesForCurrentImage = hasCommandAfterLatestUpload(messages);
 
     if (
-      hasUserMessages ||
+      hasCommandMessagesForCurrentImage ||
       dismissedRecommendationIds.length > 0 ||
       dismissedRecommendationIds.includes(HIDE_ALL_RECOMMENDATIONS_KEY) ||
       isTurnBusy
@@ -747,7 +774,6 @@ export default function Home() {
     messages,
     recommendations,
     sessionId,
-    uploadedImageUrl,
   ]);
 
   const hasUserMessages = useMemo(
@@ -1037,15 +1063,13 @@ export default function Home() {
         throw new Error(uploadPayload.error || "图片上传失败");
       }
 
-      // Reset to a clean slate: clear prior messages/turns, ready for fresh interaction
-      // with the new image. dismissedRecommendationIds=[] lets new recommendations appear.
       updateActiveConversation((conversation) => ({
         ...conversation,
         uploadedImageUrl: dataUrl,
         uploadedFileName: file.name,
         currentImageUrl: dataUrl,
         originalImageUrl: uploadPayload.img_url ?? "",
-        messages: buildMessagesFromTurns([], dataUrl),
+        messages: [...conversation.messages, buildUploadMessage(dataUrl)],
         recommendations: [],
         recommendationStatus: "idle",
         dismissedRecommendationIds: [],
@@ -1400,6 +1424,7 @@ export default function Home() {
           {
             id: `local-user-${Date.now()}`,
             role: "user",
+            kind: "command",
             label: USER_NAME,
             text: command,
             imageUrl: conversation.messages.some((message) => message.role === "user")
