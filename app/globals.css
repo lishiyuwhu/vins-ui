@@ -1614,6 +1614,10 @@ button {
   gap: 16px;
 }
 
+.mode-row {
+  position: relative;
+}
+
 .composer-left,
 .composer-right {
   min-width: 0;
@@ -1842,6 +1846,23 @@ button {
 
   .suggestions-session {
     transform: none;
+  }
+
+  .assistant-image-download {
+    opacity: 1;
+    transform: none;
+  }
+
+  .uploaded-preview-close {
+    width: 36px;
+    height: 36px;
+    line-height: 36px;
+    border-radius: 50%;
+    font-size: 20px;
+  }
+
+  .composer-glow {
+    display: none;
   }
 }
 

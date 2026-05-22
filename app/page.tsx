@@ -2518,13 +2518,15 @@ export default function Home() {
                     <span>思考</span>
                     <span className="mode-toggle-indicator" aria-hidden="true" />
                   </button>
-                  <span
-                    className={modeNoticeVisible ? "mode-pending-notice is-visible" : "mode-pending-notice"}
-                    role="status"
-                    aria-live="polite"
-                  >
-                    待接入
-                  </span>
+                  {modeNoticeVisible && (
+                    <span
+                      className="mode-pending-notice is-visible"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      待接入
+                    </span>
+                  )}
                 </div>
               </div>
 
