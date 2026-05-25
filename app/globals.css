@@ -3447,9 +3447,14 @@ button {
     min-height: 100px;
   }
 
+  .reference-card {
+    padding: 10px 12px 12px;
+    gap: 12px;
+  }
+
   .user-bubble {
     width: 100%;
-    padding: 24px;
+    padding: 12px 16px;
     font-size: 18px;
     line-height: 28px;
   }
@@ -3625,12 +3630,14 @@ button {
 
   .chat-stream {
     margin-top: 16px;
+    gap: 24px;
+    padding-bottom: 200px;
   }
 
   .chat-stream-empty {
     justify-content: flex-start;
     min-height: auto;
-    padding-bottom: 280px;
+    padding-bottom: 200px;
   }
 
   .assistant-response-welcome {
