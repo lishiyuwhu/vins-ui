@@ -1866,325 +1866,6 @@ button {
   }
 }
 
-@media (max-width: 760px) {
-  :root {
-    --workspace-gutter: 20px;
-  }
-
-  .uploaded-preview-zone {
-    justify-content: center;
-    width: calc(100% - 40px);
-    margin: 0 auto 28px;
-  }
-
-  .uploaded-preview-card {
-    width: min(334px, 100%);
-    align-items: center;
-  }
-
-  .uploaded-preview-frame {
-    width: 100%;
-  }
-
-  .topbar h1 {
-    font-size: 24px;
-    line-height: 30px;
-  }
-
-  .topnav {
-    flex-wrap: wrap;
-    gap: 18px;
-  }
-
-  .topnav a {
-    font-size: 14px;
-  }
-
-  .reference-thumb {
-    width: 98px;
-    height: 64px;
-  }
-
-  .reference-image {
-    width: 98px;
-    height: 64px;
-  }
-
-  .reference-meta {
-    min-height: 100px;
-  }
-
-  .user-bubble {
-    width: 100%;
-    padding: 24px;
-    font-size: 18px;
-    line-height: 28px;
-  }
-
-  .assistant-copy {
-    font-size: 18px;
-    line-height: 28px;
-  }
-
-  .assistant-copy-welcome {
-    font-size: 18px;
-    line-height: 28px;
-  }
-
-  .composer-glow {
-    width: calc(100% - 12px);
-    height: 78px;
-  }
-
-  .composer {
-    width: calc(100% - 8px);
-    min-height: 88px;
-    padding: 11px 12px 9px;
-    border-radius: 20px;
-  }
-
-  .composer-with-suggestions {
-    min-height: 268px;
-  }
-
-  .composer-input-shell {
-    margin-bottom: 8px;
-    padding: 0 8px 8px;
-    min-height: 42px;
-  }
-
-  .composer-with-suggestions .composer-input-shell {
-    min-height: 42px;
-  }
-
-  .composer-textarea {
-    min-height: 42px;
-    max-height: 132px;
-    padding-top: 2px;
-    font-size: 16px;
-    line-height: 1.5;
-  }
-
-  .composer-with-suggestions .composer-textarea {
-    min-height: 42px;
-    font-size: 16px;
-  }
-
-  .composer-toolbar {
-    gap: 6px;
-    padding-top: 4px;
-    flex-wrap: nowrap;
-    overflow: hidden;
-  }
-
-  .composer-left {
-    flex: 1 1 auto;
-    min-width: 0;
-    gap: 6px;
-    overflow: hidden;
-  }
-
-  .add-button {
-    width: 36px;
-    height: 36px;
-    flex-shrink: 0;
-  }
-
-  .mode-row {
-    flex-wrap: nowrap;
-    gap: 4px;
-    min-width: 0;
-    overflow: hidden;
-  }
-
-  .mode-button {
-    flex: 0 1 auto;
-    min-height: 30px;
-    padding: 0 10px;
-    gap: 4px;
-    font-size: 13px;
-    white-space: nowrap;
-    overflow: hidden;
-    justify-content: center;
-  }
-
-  .composer-right {
-    flex: 0 0 auto;
-    margin-left: auto;
-    flex-basis: auto;
-  }
-
-  .send-button {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    align-self: center;
-  }
-
-  .send-button-shadow {
-    border-radius: 10px;
-  }
-
-  .input-shell {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .suggestions {
-    grid-template-columns: 1fr;
-  }
-
-  .suggestions-session {
-    width: min(456px, 100%);
-    transform: none;
-  }
-
-  .composer-suggestions {
-    margin-bottom: 10px;
-    padding-bottom: 10px;
-  }
-
-  .composer-suggestions-heading {
-    margin-bottom: 6px;
-    font-size: 11px;
-  }
-
-  .composer-suggestions-list {
-    gap: 6px;
-  }
-
-  .suggestion-card {
-    min-height: 42px;
-    padding: 0 12px;
-    border-radius: 12px;
-  }
-
-  .suggestion-title {
-    gap: 10px;
-    min-height: 42px;
-    font-size: 13px;
-  }
-
-  .suggestion-index {
-    min-width: 18px;
-    font-size: 12px;
-  }
-
-  .chat-stream-empty {
-    min-height: calc(100dvh - 300px);
-    padding-bottom: 190px;
-  }
-
-  .assistant-response-welcome {
-    width: calc(100% - 24px);
-    max-width: 100%;
-  }
-
-  .cosplay-workspace {
-    width: min(100%, calc(100% - 28px));
-    margin-top: 22px;
-    gap: 14px;
-  }
-
-  .cosplay-status-row {
-    padding: 12px 14px;
-    border-radius: 16px;
-  }
-
-  .cosplay-status-copy {
-    gap: 3px;
-  }
-
-  .cosplay-status-copy strong {
-    font-size: 16px;
-  }
-
-  .cosplay-welcome {
-    font-size: 15px;
-    line-height: 1.6;
-    margin-top: 12px;
-  }
-
-  .cosplay-upload-target {
-    width: min(320px, 100%);
-    border-radius: 16px;
-  }
-
-  .cosplay-upload-plus {
-    width: 48px;
-    height: 48px;
-    font-size: 32px;
-  }
-
-  .cosplay-image-grid {
-    gap: 12px;
-  }
-
-  .cosplay-image-frame {
-    min-height: 160px;
-  }
-
-  .progress-ticker {
-    align-items: flex-start;
-  }
-
-  .progress-ticker-body {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .queue-progress {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .recommendation-notice {
-    width: calc(100% - 8px);
-    min-width: 0;
-    margin-bottom: 8px;
-    padding: 12px 14px;
-    border-radius: 16px;
-  }
-
-  .auth-panel {
-    width: calc(100% - 16px);
-    padding: 14px 14px;
-    margin-top: 16px;
-  }
-
-  .auth-panel-copy {
-    gap: 4px;
-  }
-
-  .auth-panel-copy strong {
-    font-size: 15px;
-  }
-
-  .auth-panel-copy span:last-child {
-    font-size: 12px;
-  }
-
-  .auth-panel-form {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-
-  .auth-input {
-    min-height: 40px;
-    padding: 0 12px;
-    font-size: 14px;
-  }
-
-  .auth-submit {
-    width: 100%;
-    min-height: 40px;
-    padding: 0 14px;
-    font-size: 14px;
-  }
-}
-
 /* Light theme overrides inspired by the uploaded reference */
 .profile-avatar {
   border: 1px solid rgba(79, 140, 255, 0.16);
@@ -2252,13 +1933,6 @@ button {
 .mode-button,
 .assistant-image-download {
   color: #374151;
-}
-
-.chat-stream {
-  gap: 42px;
-  width: min(920px, calc(100% - (var(--workspace-gutter) * 2)));
-  margin: 36px auto 0;
-  padding-bottom: 280px;
 }
 
 .assistant-copy,
@@ -3720,4 +3394,359 @@ button {
   }
 }
 
+@media (max-width: 760px) {
+  :root {
+    --workspace-gutter: 20px;
+  }
+
+  .topbar {
+    row-gap: 2px;
+    padding: 4px 20px;
+  }
+
+  .uploaded-preview-zone {
+    justify-content: center;
+    width: calc(100% - 40px);
+    margin: 0 auto 28px;
+  }
+
+  .uploaded-preview-card {
+    width: min(334px, 100%);
+    align-items: center;
+  }
+
+  .uploaded-preview-frame {
+    width: 100%;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
+    line-height: 30px;
+  }
+
+  .topnav {
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+
+  .topnav a {
+    font-size: 14px;
+  }
+
+  .reference-thumb {
+    width: 98px;
+    height: 64px;
+  }
+
+  .reference-image {
+    width: 98px;
+    height: 64px;
+  }
+
+  .reference-meta {
+    min-height: 100px;
+  }
+
+  .reference-card {
+    padding: 10px 12px 12px;
+    gap: 12px;
+  }
+
+  .user-bubble {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 18px;
+    line-height: 28px;
+  }
+
+  .assistant-copy {
+    font-size: 18px;
+    line-height: 28px;
+  }
+
+  .assistant-copy-welcome {
+    font-size: 15px;
+    line-height: 25px;
+  }
+
+  .composer-glow {
+    width: calc(100% - 12px);
+    height: 78px;
+  }
+
+  .composer {
+    width: calc(100% - 8px);
+    min-height: 88px;
+    padding: 11px 12px 9px;
+    border-radius: 20px;
+  }
+
+  .composer-with-suggestions {
+    min-height: 268px;
+  }
+
+  .composer-input-shell {
+    margin-bottom: 8px;
+    padding: 0 8px 8px;
+    min-height: 42px;
+  }
+
+  .composer-with-suggestions .composer-input-shell {
+    min-height: 42px;
+  }
+
+  .composer-textarea {
+    min-height: 42px;
+    max-height: 132px;
+    padding-top: 2px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .composer-with-suggestions .composer-textarea {
+    min-height: 42px;
+    font-size: 16px;
+  }
+
+  .composer-toolbar {
+    gap: 6px;
+    padding-top: 4px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  .composer-left {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  .add-button {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+  }
+
+  .mode-row {
+    flex-wrap: nowrap;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .mode-button {
+    flex: 0 1 auto;
+    min-height: 30px;
+    padding: 0 10px;
+    gap: 4px;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    justify-content: center;
+  }
+
+  .composer-right {
+    flex: 0 0 auto;
+    margin-left: auto;
+    flex-basis: auto;
+  }
+
+  .send-button {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    align-self: center;
+  }
+
+  .send-button-shadow {
+    border-radius: 10px;
+  }
+
+  .input-shell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .suggestions-session {
+    width: min(456px, 100%);
+    transform: none;
+  }
+
+  .composer-suggestions {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+  }
+
+  .composer-suggestions-heading {
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+
+  .composer-suggestions-list {
+    gap: 6px;
+  }
+
+  .suggestion-card {
+    min-height: 42px;
+    padding: 0 12px;
+    border-radius: 12px;
+  }
+
+  .suggestion-title {
+    gap: 10px;
+    min-height: 42px;
+    font-size: 13px;
+  }
+
+  .suggestion-index {
+    min-width: 18px;
+    font-size: 12px;
+  }
+
+  .scene-banner {
+    margin-top: 12px;
+    padding: 14px;
+    gap: 4px;
+  }
+
+  .scene-banner-copy strong {
+    font-size: 15px;
+  }
+
+  .scene-banner-copy > span:last-child {
+    font-size: 12px;
+  }
+
+  .scene-banner-status {
+    align-items: flex-end;
+    gap: 4px;
+    font-size: 12px;
+  }
+
+  .chat-stream {
+    margin-top: 16px;
+    gap: 24px;
+    padding-bottom: 200px;
+  }
+
+  .chat-stream-empty {
+    justify-content: flex-start;
+    min-height: auto;
+    padding-bottom: 200px;
+  }
+
+  .assistant-response-welcome {
+    width: calc(100% - 24px);
+    max-width: 100%;
+  }
+
+  .cosplay-workspace {
+    width: min(100%, calc(100% - 28px));
+    margin-top: 12px;
+    gap: 4px;
+  }
+
+  .cosplay-status-row {
+    padding: 12px 14px;
+    border-radius: 16px;
+  }
+
+  .cosplay-status-copy {
+    gap: 3px;
+  }
+
+  .cosplay-status-copy strong {
+    font-size: 16px;
+  }
+
+  .cosplay-welcome {
+    font-size: 15px;
+    line-height: 1.6;
+    margin-top: 12px;
+  }
+
+  .cosplay-upload-target {
+    width: min(320px, 100%);
+    border-radius: 16px;
+  }
+
+  .cosplay-upload-plus {
+    width: 48px;
+    height: 48px;
+    font-size: 32px;
+  }
+
+  .cosplay-image-grid {
+    gap: 12px;
+  }
+
+  .cosplay-image-frame {
+    min-height: 160px;
+  }
+
+  .progress-ticker {
+    align-items: flex-start;
+  }
+
+  .progress-ticker-body {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .queue-progress {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .recommendation-notice {
+    width: calc(100% - 8px);
+    min-width: 0;
+    margin-bottom: 8px;
+    padding: 12px 14px;
+    border-radius: 16px;
+  }
+
+  .auth-panel {
+    width: calc(100% - 16px);
+    padding: 14px 14px;
+    margin-top: 16px;
+  }
+
+  .auth-panel-copy {
+    gap: 4px;
+  }
+
+  .auth-panel-copy strong {
+    font-size: 15px;
+  }
+
+  .auth-panel-copy span:last-child {
+    font-size: 12px;
+  }
+
+  .auth-panel-form {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .auth-input {
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
+  .auth-submit {
+    width: 100%;
+    min-height: 40px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+}
 
