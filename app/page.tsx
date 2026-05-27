@@ -72,8 +72,9 @@ type AuthState = {
   error?: string;
 };
 
-type WorkspaceMode = "agent" | "cosplay";
+type WorkspaceMode = "agent" | "cosplay" | "style3";
 type CosplayStatus = "idle" | "uploading" | "queued" | "running" | "succeeded" | "failed";
+type Style3Status = "idle" | "uploading" | "queued" | "running" | "succeeded" | "failed";
 
 type CosplayState = {
   inputPreviewUrl: string;
@@ -89,6 +90,21 @@ type CosplayState = {
   error: string;
 };
 
+type Style3State = {
+  selectedStyleId: string;
+  inputPreviewUrl: string;
+  inputFileName: string;
+  uploadedImgUrl: string;
+  taskId: string;
+  resultImgUrl: string;
+  queuePosition: number | null;
+  queueSize: number | null;
+  progressStage: string;
+  progressPercent: number | null;
+  status: Style3Status;
+  error: string;
+};
+
 type StyleTaskStartResponse = {
   task_id?: string;
   status?: "queued" | "running" | string;
@@ -99,7 +115,7 @@ type StyleTaskStartResponse = {
 };
 
 type StyleTaskPollResponse = {
-  status?: "queued" | "running" | "success" | "failed" | string;
+  status?: "queued" | "running" | "success" | "succeeded" | "completed" | "failed" | string;
   queue_position?: number | null;
   queue_size?: number | null;
   message?: string;
@@ -109,8 +125,14 @@ type StyleTaskPollResponse = {
     percent?: number;
   };
   result?: {
+    img_url?: string;
+    img_urls?: string[];
     output?: {
+      img_url?: string;
       img_urls?: string[];
+      image_url?: string;
+      images?: string[];
+      result_img_url?: string;
     };
   };
 };
@@ -165,6 +187,14 @@ type SidebarIconName =
   | "gift"
   | "chevron";
 
+type Style3Style = {
+  id: string;
+  label: string;
+  category: string;
+  gradient: string;
+  imageUrl?: string;
+};
+
 const AGENT_NAME = "VINS Agent";
 const USER_NAME = "用户";
 const BACKEND_HINT = "https://bluepixel.vivo.com.cn";
@@ -202,6 +232,36 @@ const TURN_POLL_INTERVAL_MS = 1500;
 const TURN_POLL_MAX_ATTEMPTS = 120;
 const COSPLAY_POLL_INTERVAL_MS = 2000;
 const COSPLAY_POLL_MAX_ATTEMPTS = 150;
+const STYLE3_POLL_INTERVAL_MS = 2000;
+const STYLE3_POLL_MAX_ATTEMPTS = 150;
+const STYLE3_STYLES: Style3Style[] = [
+  { id: "morning", label: "晨曦", category: "风景", imageUrl: "/style-transfer/morning.png", gradient: "linear-gradient(135deg, #fbbf24 0%, #fb7185 56%, #60a5fa 100%)" },
+  { id: "nature", label: "晴空", category: "风景", imageUrl: "/style-transfer/nature.png", gradient: "linear-gradient(135deg, #38bdf8 0%, #86efac 100%)" },
+  { id: "sunset", label: "暮霞", category: "风景", imageUrl: "/style-transfer/sunset.png", gradient: "linear-gradient(135deg, #f97316 0%, #db2777 56%, #312e81 100%)" },
+  { id: "night", label: "夜幕", category: "风景", imageUrl: "/style-transfer/night.png", gradient: "linear-gradient(135deg, #020617 0%, #1e3a8a 100%)" },
+  { id: "water_village", label: "江南", category: "风景", imageUrl: "/style-transfer/water_village.png", gradient: "linear-gradient(135deg, #99f6e4 0%, #60a5fa 100%)" },
+  { id: "winter", label: "冬", category: "风景", imageUrl: "/style-transfer/winter.png", gradient: "linear-gradient(135deg, #e0f2fe 0%, #94a3b8 100%)" },
+  { id: "chanyi", label: "禅意", category: "旅行", imageUrl: "/style-transfer/chanyi.png", gradient: "linear-gradient(135deg, #d9f99d 0%, #a3a3a3 100%)" },
+  { id: "underwater", label: "水下万物", category: "旅行", imageUrl: "/style-transfer/underwater.png", gradient: "linear-gradient(135deg, #0e7490 0%, #172554 100%)" },
+  { id: "meng_he", label: "梦核柔光", category: "旅行", imageUrl: "/style-transfer/meng_he.png", gradient: "linear-gradient(135deg, #f0abfc 0%, #93c5fd 100%)" },
+  { id: "hk_style", label: "港风", category: "旅行", imageUrl: "/style-transfer/hk_style.png", gradient: "linear-gradient(135deg, #ef4444 0%, #f59e0b 50%, #111827 100%)" },
+  { id: "tang_style", label: "盛世", category: "旅行", imageUrl: "/style-transfer/tang_style.png", gradient: "linear-gradient(135deg, #f59e0b 0%, #7c2d12 100%)" },
+  { id: "fireworks", label: "烟花", category: "旅行", imageUrl: "/style-transfer/fireworks.png", gradient: "linear-gradient(135deg, #0f172a 0%, #7c3aed 52%, #f97316 100%)" },
+  { id: "wasteland", label: "废土", category: "旅行", imageUrl: "/style-transfer/wasteland.png", gradient: "linear-gradient(135deg, #713f12 0%, #a8a29e 100%)" },
+  { id: "rim_light", label: "氛围阳光", category: "旅行", imageUrl: "/style-transfer/rim_light.png", gradient: "linear-gradient(135deg, #fde68a 0%, #fb923c 100%)" },
+  { id: "cosplay_gaoran", label: "高燃", category: "动漫", imageUrl: "/style-transfer/cosplay_gaoran.png", gradient: "linear-gradient(135deg, #991b1b 0%, #f97316 100%)" },
+  { id: "cosplay_wuji", label: "无极", category: "动漫", imageUrl: "/style-transfer/cosplay_wuji.png", gradient: "linear-gradient(135deg, #312e81 0%, #0891b2 100%)" },
+  { id: "cosplay_ice_snow", label: "冰雪", category: "动漫", imageUrl: "/style-transfer/cosplay_ice_snow.png", gradient: "linear-gradient(135deg, #dbeafe 0%, #38bdf8 100%)" },
+  { id: "man_zhan_light", label: "暗调漫展光", category: "动漫", imageUrl: "/style-transfer/man_zhan_light.png", gradient: "linear-gradient(135deg, #111827 0%, #4f46e5 52%, #f472b6 100%)" },
+  { id: "stage_light", label: "主舞台", category: "舞台", imageUrl: "/style-transfer/stage_light.png", gradient: "linear-gradient(135deg, #0f172a 0%, #c026d3 100%)" },
+  { id: "initial_stage_light", label: "初舞台", category: "舞台", imageUrl: "/style-transfer/initial_stage_light.png", gradient: "linear-gradient(135deg, #1e3a8a 0%, #f9a8d4 100%)" },
+  { id: "stage_dage", label: "打歌台", category: "舞台", imageUrl: "/style-transfer/stage_dage.png", gradient: "linear-gradient(135deg, #111827 0%, #22d3ee 52%, #fb7185 100%)" },
+  { id: "heavy_rain", label: "雨天", category: "天气", gradient: "linear-gradient(135deg, #0f172a 0%, #64748b 58%, #38bdf8 100%)" },
+  { id: "polarlights", label: "极光", category: "天气", gradient: "linear-gradient(135deg, #020617 0%, #10b981 48%, #8b5cf6 100%)" },
+  { id: "rainbow", label: "彩虹", category: "天气", gradient: "linear-gradient(135deg, #ef4444 0%, #f59e0b 25%, #22c55e 52%, #3b82f6 76%, #8b5cf6 100%)" },
+  { id: "blizzard", label: "雪天", category: "天气", gradient: "linear-gradient(135deg, #f8fafc 0%, #bae6fd 48%, #64748b 100%)" },
+  { id: "heavy_fog", label: "雾天", category: "天气", gradient: "linear-gradient(135deg, #f1f5f9 0%, #94a3b8 58%, #475569 100%)" },
+];
 const BUILD_COMMIT_SHA =
   process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "dev-local";
 
@@ -575,6 +635,20 @@ export default function Home() {
     progressPercent: null,
     error: "",
   });
+  const [style3, setStyle3] = useState<Style3State>({
+    selectedStyleId: "",
+    inputPreviewUrl: "",
+    inputFileName: "",
+    uploadedImgUrl: "",
+    taskId: "",
+    resultImgUrl: "",
+    queuePosition: null,
+    queueSize: null,
+    progressStage: "",
+    progressPercent: null,
+    status: "idle",
+    error: "",
+  });
   const [previewImageUrl, setPreviewImageUrl] = useState("");
   const [modeNoticeVisible, setModeNoticeVisible] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -609,8 +683,20 @@ export default function Home() {
   const requestError = activeConversation?.requestError ?? "";
   const isAgentWorkspace = activeWorkspace === "agent";
   const isCosplayWorkspace = activeWorkspace === "cosplay";
+  const isStyle3Workspace = activeWorkspace === "style3";
   const isCosplayBusy =
     cosplay.status === "uploading" || cosplay.status === "queued" || cosplay.status === "running";
+  const isStyle3Busy =
+    style3.status === "uploading" || style3.status === "queued" || style3.status === "running";
+  const isStyle3ResultView = Boolean(
+    style3.inputPreviewUrl &&
+      (
+        style3.status === "uploading" ||
+        style3.status === "queued" ||
+        style3.status === "running" ||
+        style3.status === "succeeded"
+      ),
+  );
   const hasBoundImage = Boolean(originalImageUrl);
   const hasActiveTurn = Boolean(activeTurnId);
   const isTurnBusy = isStreaming || hasActiveTurn;
@@ -923,6 +1009,10 @@ export default function Home() {
     return "VOID_02.PNG";
   }, [uploadedFileName, uploadedImageUrl]);
   const uploadedPreviewImageUrl = uploadedImageUrl || originalImageUrl || currentImageUrl;
+  const selectedStyle3Style = useMemo(
+    () => STYLE3_STYLES.find((style) => style.id === style3.selectedStyleId) ?? null,
+    [style3.selectedStyleId],
+  );
   const cosplayStatusText =
     cosplay.status === "uploading"
       ? "正在上传图片"
@@ -935,6 +1025,51 @@ export default function Home() {
           : cosplay.status === "failed"
             ? "处理失败"
             : "等待输入图片";
+  const style3StatusText =
+    style3.status === "uploading"
+      ? "正在上传图片"
+      : style3.status === "queued"
+        ? "任务排队中"
+      : style3.status === "running"
+        ? "正在生成风格编辑结果"
+      : style3.status === "succeeded"
+        ? "风格编辑已完成"
+        : style3.status === "failed"
+          ? "处理失败"
+          : selectedStyle3Style
+            ? `已选择 ${selectedStyle3Style.label}，请上传图片`
+            : "请先选择风格，再上传图片";
+  const style3QueueText = useMemo(() => {
+    if (style3.status === "queued") {
+      const position = style3.queuePosition;
+      const size = style3.queueSize;
+      if (typeof position === "number" && typeof size === "number" && size > 0) {
+        return `排队 ${position} / ${size}`;
+      }
+      if (typeof position === "number") {
+        return `排队 ${position}`;
+      }
+    }
+
+    if (style3.status === "running" && typeof style3.progressPercent === "number") {
+      return `进度 ${style3.progressPercent}%`;
+    }
+
+    return "";
+  }, [
+    style3.progressPercent,
+    style3.queuePosition,
+    style3.queueSize,
+    style3.status,
+  ]);
+  const style3ResultPlaceholderText =
+    style3.status === "uploading"
+      ? "正在上传图片"
+      : style3.status === "queued"
+        ? style3QueueText || "任务排队中"
+      : style3.status === "running"
+        ? style3QueueText || "正在生成风格编辑结果"
+      : "等待结果图";
   const cosplayQueueText = useMemo(() => {
     if (cosplay.status === "queued") {
       const position = cosplay.queuePosition;
@@ -1150,9 +1285,22 @@ export default function Home() {
       return;
     }
 
+    if (isStyle3Workspace && isStyle3Busy) {
+      return;
+    }
+
     if (!auth?.ok) {
       if (isCosplayWorkspace) {
         setCosplay((prev) => ({
+          ...prev,
+          status: "failed",
+          error: "请先登录",
+        }));
+        return;
+      }
+
+      if (isStyle3Workspace) {
+        setStyle3((prev) => ({
           ...prev,
           status: "failed",
           error: "请先登录",
@@ -1167,6 +1315,15 @@ export default function Home() {
       return;
     }
 
+    if (isStyle3Workspace && !style3.selectedStyleId) {
+      setStyle3((prev) => ({
+        ...prev,
+        status: "failed",
+        error: "请先选择风格，再上传图片",
+      }));
+      return;
+    }
+
     if (isAgentWorkspace && !sessionId) {
       updateActiveConversation((conversation) => ({
         ...conversation,
@@ -1176,6 +1333,48 @@ export default function Home() {
     }
 
     fileInputRef.current?.click();
+  }
+
+  function handleStyle3Select(styleId: string) {
+    if (isStyle3Busy) {
+      return;
+    }
+
+    setStyle3({
+      selectedStyleId: styleId,
+      inputPreviewUrl: "",
+      inputFileName: "",
+      uploadedImgUrl: "",
+      taskId: "",
+      resultImgUrl: "",
+      queuePosition: null,
+      queueSize: null,
+      progressStage: "",
+      progressPercent: null,
+      status: "idle",
+      error: "",
+    });
+  }
+
+  function handleStyle3Reset() {
+    if (isStyle3Busy) {
+      return;
+    }
+
+    setStyle3({
+      selectedStyleId: "",
+      inputPreviewUrl: "",
+      inputFileName: "",
+      uploadedImgUrl: "",
+      taskId: "",
+      resultImgUrl: "",
+      queuePosition: null,
+      queueSize: null,
+      progressStage: "",
+      progressPercent: null,
+      status: "idle",
+      error: "",
+    });
   }
 
   async function parseGatewayError(response: Response, fallback: string) {
@@ -1195,10 +1394,28 @@ export default function Home() {
   }
 
   function getStyleTaskResultUrls(payload: StyleTaskPollResponse) {
-    const urls = payload.result?.output?.img_urls;
-    return Array.isArray(urls)
-      ? urls.filter((url): url is string => typeof url === "string" && Boolean(url.trim()))
-      : [];
+    const candidates = [
+      payload.result?.output?.img_urls,
+      payload.result?.output?.images,
+      payload.result?.img_urls,
+      payload.result?.output?.img_url,
+      payload.result?.output?.image_url,
+      payload.result?.output?.result_img_url,
+      payload.result?.img_url,
+    ];
+
+    return candidates
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      .filter((url): url is string => typeof url === "string" && Boolean(url.trim()));
+  }
+
+  function isStyleTaskSuccessStatus(status: string) {
+    const normalizedStatus = status.toLowerCase();
+    return (
+      normalizedStatus === "success" ||
+      normalizedStatus === "succeeded" ||
+      normalizedStatus === "completed"
+    );
   }
 
   async function pollCosplayTask(taskId: string) {
@@ -1218,10 +1435,12 @@ export default function Home() {
       const payload = (await response.json()) as StyleTaskPollResponse;
       const status = payload.status ?? "";
 
-      if (status === "queued" || status === "running") {
+      const normalizedStatus = status.toLowerCase();
+
+      if (normalizedStatus === "queued" || normalizedStatus === "running") {
         setCosplay((prev) => ({
           ...prev,
-          status,
+          status: normalizedStatus,
           queuePosition: payload.queue_position ?? prev.queuePosition,
           queueSize: payload.queue_size ?? prev.queueSize,
           progressStage: payload.progress?.stage ?? prev.progressStage,
@@ -1234,7 +1453,7 @@ export default function Home() {
         continue;
       }
 
-      if (status === "success") {
+      if (isStyleTaskSuccessStatus(status)) {
         const resultImgUrls = getStyleTaskResultUrls(payload);
         if (resultImgUrls.length === 0) {
           throw new Error("Style API 未返回结果图片");
@@ -1253,7 +1472,7 @@ export default function Home() {
         return;
       }
 
-      if (status === "failed") {
+      if (normalizedStatus === "failed") {
         throw new Error(payload.error || payload.message || "cosplay 姿势推荐生成失败");
       }
 
@@ -1358,6 +1577,177 @@ export default function Home() {
         progressStage: "",
         progressPercent: null,
         error: error instanceof Error ? error.message : "Cosplay Style 生成失败",
+      }));
+    }
+  }
+
+  async function pollStyle3Task(taskId: string) {
+    for (let attempt = 0; attempt < STYLE3_POLL_MAX_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        await wait(STYLE3_POLL_INTERVAL_MS);
+      }
+
+      const response = await fetch(`${getGatewayRequestBaseUrl()}/web/style-edit/tasks/${taskId}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(await parseGatewayError(response, "任务查询失败"));
+      }
+
+      const payload = (await response.json()) as StyleTaskPollResponse;
+      const status = payload.status ?? "";
+
+      const normalizedStatus = status.toLowerCase();
+
+      if (normalizedStatus === "queued" || normalizedStatus === "running") {
+        setStyle3((prev) => ({
+          ...prev,
+          status: normalizedStatus,
+          queuePosition: payload.queue_position ?? prev.queuePosition,
+          queueSize: payload.queue_size ?? prev.queueSize,
+          progressStage: payload.progress?.stage ?? prev.progressStage,
+          progressPercent:
+            typeof payload.progress?.percent === "number"
+              ? payload.progress.percent
+              : prev.progressPercent,
+          error: "",
+        }));
+        continue;
+      }
+
+      if (isStyleTaskSuccessStatus(status)) {
+        const resultImgUrls = getStyleTaskResultUrls(payload);
+        if (resultImgUrls.length === 0) {
+          throw new Error("Style Transfer API 未返回结果图片");
+        }
+
+        setStyle3((prev) => ({
+          ...prev,
+          resultImgUrl: resultImgUrls[0],
+          status: "succeeded",
+          queuePosition: null,
+          queueSize: null,
+          progressStage: "",
+          progressPercent: null,
+          error: "",
+        }));
+        return;
+      }
+
+      if (normalizedStatus === "failed") {
+        throw new Error(payload.error || payload.message || "风格编辑生成失败");
+      }
+
+      throw new Error(payload.message || "未知任务状态");
+    }
+
+    throw new Error("任务处理时间较长，请稍后重新上传");
+  }
+
+  async function handleStyle3ImageUpload(file: File) {
+    try {
+      if (!style3.selectedStyleId) {
+        throw new Error("请先选择风格，再上传图片");
+      }
+
+      if (!auth?.ok) {
+        throw new Error("请先登录");
+      }
+
+      setStyle3((prev) => ({
+        ...prev,
+        inputPreviewUrl: "",
+        inputFileName: file.name,
+        uploadedImgUrl: "",
+        taskId: "",
+        resultImgUrl: "",
+        queuePosition: null,
+        queueSize: null,
+        progressStage: "",
+        progressPercent: null,
+        status: "uploading",
+        error: "",
+      }));
+
+      const dataUrl = await readFileAsDataUrl(file);
+      setStyle3((prev) => ({
+        ...prev,
+        inputPreviewUrl: dataUrl,
+      }));
+
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      const uploadResponse = await fetch(`${getGatewayRequestBaseUrl()}/api/v1/agent/upload-file`, {
+        method: "POST",
+        credentials: "include",
+        body: uploadFormData,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(await parseGatewayError(uploadResponse, "图片上传失败"));
+      }
+
+      const uploadPayload = (await uploadResponse.json()) as {
+        img_url?: string;
+      };
+      if (!uploadPayload.img_url) {
+        throw new Error("图片上传未返回可用 URL");
+      }
+
+      setStyle3((prev) => ({
+        ...prev,
+        uploadedImgUrl: uploadPayload.img_url ?? "",
+        taskId: "",
+        resultImgUrl: "",
+        status: "queued",
+        queuePosition: null,
+        queueSize: null,
+        progressStage: "",
+        progressPercent: null,
+        error: "",
+      }));
+
+      const styleResponse = await fetch(`${getGatewayRequestBaseUrl()}/web/style-edit/transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          img_url: uploadPayload.img_url,
+          styles: [style3.selectedStyleId],
+          remove_pedestrians: false,
+          seed: -1,
+        }),
+      });
+      if (!styleResponse.ok) {
+        throw new Error(await parseGatewayError(styleResponse, "风格编辑任务启动失败"));
+      }
+
+      const stylePayload = (await styleResponse.json()) as StyleTaskStartResponse;
+      if (!stylePayload.task_id) {
+        throw new Error("Style Transfer API 未返回任务 ID");
+      }
+
+      setStyle3((prev) => ({
+        ...prev,
+        taskId: stylePayload.task_id ?? "",
+        status: stylePayload.status === "running" ? "running" : "queued",
+        queuePosition: stylePayload.queue_position ?? null,
+        queueSize: stylePayload.queue_size ?? null,
+        progressStage: "",
+        progressPercent: null,
+        error: "",
+      }));
+
+      await pollStyle3Task(stylePayload.task_id);
+    } catch (error) {
+      setStyle3((prev) => ({
+        ...prev,
+        status: "failed",
+        queuePosition: null,
+        queueSize: null,
+        progressStage: "",
+        progressPercent: null,
+        error: error instanceof Error ? error.message : "风格编辑生成失败",
       }));
     }
   }
@@ -1484,6 +1874,8 @@ export default function Home() {
     try {
       if (isCosplayWorkspace) {
         await handleCosplayImageUpload(file);
+      } else if (isStyle3Workspace) {
+        await handleStyle3ImageUpload(file);
       } else {
         await handleImageFileUpload(file);
       }
@@ -1501,13 +1893,23 @@ export default function Home() {
       return;
     }
 
+    if (isStyle3Workspace && isStyle3Busy) {
+      return;
+    }
+
     const file = getFirstImageFile(event.clipboardData.files);
     if (!file) {
       return;
     }
 
     event.preventDefault();
-    void (isCosplayWorkspace ? handleCosplayImageUpload(file) : handleImageFileUpload(file));
+    if (isCosplayWorkspace) {
+      void handleCosplayImageUpload(file);
+    } else if (isStyle3Workspace) {
+      void handleStyle3ImageUpload(file);
+    } else {
+      void handleImageFileUpload(file);
+    }
   }
 
   function handleWorkspaceDragOver(event: DragEvent<HTMLElement>) {
@@ -1519,11 +1921,20 @@ export default function Home() {
       return;
     }
 
+    if (isStyle3Workspace && isStyle3Busy) {
+      return;
+    }
+
     if (!hasImageTransferData(event.dataTransfer)) {
       return;
     }
 
     event.preventDefault();
+    if (isStyle3Workspace && !style3.selectedStyleId) {
+      event.dataTransfer.dropEffect = "none";
+      return;
+    }
+
     event.dataTransfer.dropEffect = "copy";
   }
 
@@ -1536,13 +1947,23 @@ export default function Home() {
       return;
     }
 
+    if (isStyle3Workspace && isStyle3Busy) {
+      return;
+    }
+
     const file = getFirstImageFile(event.dataTransfer.files);
     if (!file) {
       return;
     }
 
     event.preventDefault();
-    void (isCosplayWorkspace ? handleCosplayImageUpload(file) : handleImageFileUpload(file));
+    if (isCosplayWorkspace) {
+      void handleCosplayImageUpload(file);
+    } else if (isStyle3Workspace) {
+      void handleStyle3ImageUpload(file);
+    } else {
+      void handleImageFileUpload(file);
+    }
   }
 
   function getTurnStatusText(turn: TurnRecord) {
@@ -1953,6 +2374,19 @@ export default function Home() {
               <SidebarIcon name="spark" />
               <span>cosplay 姿势推荐</span>
             </button>
+
+            <button
+              type="button"
+              className={
+                isStyle3Workspace
+                  ? "sidebar-nav-item sidebar-nav-subitem sidebar-nav-item-active"
+                  : "sidebar-nav-item sidebar-nav-subitem"
+              }
+              onClick={() => { setActiveWorkspace("style3"); setSidebarOpen(false); }}
+            >
+              <SidebarIcon name="spark" />
+              <span>风格3.0</span>
+            </button>
           </nav>
 
           <section className="history-panel">
@@ -2024,7 +2458,7 @@ export default function Home() {
 
       <section
         ref={workspaceRef}
-        className={isUploadingImage || isCosplayBusy ? "workspace is-uploading-image" : "workspace"}
+        className={isUploadingImage || isCosplayBusy || isStyle3Busy ? "workspace is-uploading-image" : "workspace"}
         onPaste={handleWorkspacePaste}
         onDragOver={handleWorkspaceDragOver}
         onDrop={handleWorkspaceDrop}
@@ -2041,15 +2475,36 @@ export default function Home() {
               <span className="hamburger-line" />
               <span className="hamburger-line" />
             </button>
-            <h1>{isCosplayWorkspace ? "Cosplay Style" : "BluePixel Studio"}</h1>
+            <h1>
+              {isCosplayWorkspace
+                ? "Cosplay Style"
+                : isStyle3Workspace
+                  ? "Style 3.0"
+                  : "BluePixel Studio"}
+            </h1>
             <nav className="topnav">
               <a href="#">Gallery</a>
-              <a href="#" className={isAgentWorkspace ? "active" : undefined}>
+              <button
+                type="button"
+                className={isAgentWorkspace ? "active" : undefined}
+                onClick={() => setActiveWorkspace("agent")}
+              >
                 Model Lab
-              </a>
-              <a href="#" className={isCosplayWorkspace ? "active" : undefined}>
+              </button>
+              <button
+                type="button"
+                className={isCosplayWorkspace ? "active" : undefined}
+                onClick={() => setActiveWorkspace("cosplay")}
+              >
                 Style Lab
-              </a>
+              </button>
+              <button
+                type="button"
+                className={isStyle3Workspace ? "active" : undefined}
+                onClick={() => setActiveWorkspace("style3")}
+              >
+                Style 3.0
+              </button>
             </nav>
           </div>
 
@@ -2086,7 +2541,9 @@ export default function Home() {
               <span>
                 {isCosplayWorkspace
                   ? "输入用户名和密码后即可使用 Cosplay Style。"
-                  : "输入用户名和密码后，页面会自动创建一个空绘画会话。"}
+                  : isStyle3Workspace
+                    ? "输入用户名和密码后即可使用风格3.0。"
+                    : "输入用户名和密码后，页面会自动创建一个空绘画会话。"}
               </span>
             </div>
             <form
@@ -2202,6 +2659,147 @@ export default function Home() {
                 </button>
               </div>
             ) : null}
+          </section>
+        ) : null}
+
+        {isStyle3Workspace ? (
+          <section className="style3-workspace" aria-label="风格3.0 工作区">
+            <div className="cosplay-status-row style3-status-row">
+              <div className="cosplay-status-copy">
+                <span className="panel-kicker">STYLE 3.0</span>
+                <strong>风格3.0</strong>
+                <span>{style3StatusText}</span>
+                {selectedStyle3Style ? (
+                  <span className="cosplay-status-meta">当前风格：{selectedStyle3Style.label}</span>
+                ) : null}
+                {style3QueueText ? <span className="cosplay-status-meta">{style3QueueText}</span> : null}
+              </div>
+              {style3.error ? <em>{style3.error}</em> : null}
+            </div>
+
+            {isStyle3ResultView ? (
+              <div className="style3-result-layout">
+                <div className="style3-result-summary" aria-label="风格3.0 输入摘要">
+                  {selectedStyle3Style ? (
+                    <article
+                      className="style3-selected-card"
+                      style={{ background: selectedStyle3Style.gradient }}
+                    >
+                      {selectedStyle3Style.imageUrl ? (
+                        <img
+                          src={selectedStyle3Style.imageUrl}
+                          alt=""
+                          className="style3-card-image"
+                        />
+                      ) : null}
+                      <span className="style3-card-shine" />
+                      <span className="style3-card-check is-visible" aria-hidden="true">✓</span>
+                      <span className="style3-card-label">{selectedStyle3Style.label}</span>
+                    </article>
+                  ) : null}
+
+                  <article className="style3-input-card">
+                    <ImagePreview
+                      src={style3.inputPreviewUrl}
+                      alt="风格3.0 input"
+                      className="style3-input-frame"
+                      onPreview={setPreviewImageUrl}
+                    />
+                    <div className="style3-input-overlay">
+                      <span>INPUT</span>
+                      <strong>{style3.inputFileName || "IMAGE"}</strong>
+                    </div>
+                  </article>
+                </div>
+
+                <section className="style3-result-stage" aria-label="风格3.0 结果图">
+                  {style3.resultImgUrl ? (
+                    <ImagePreview
+                      src={style3.resultImgUrl}
+                      alt="风格3.0 result"
+                      className="style3-result-frame"
+                      canDownload
+                      onPreview={setPreviewImageUrl}
+                    />
+                  ) : (
+                    <div className="style3-result-placeholder">
+                      <span>{isStyle3Busy ? "PROCESSING" : "RESULT"}</span>
+                      <strong>{style3ResultPlaceholderText}</strong>
+                    </div>
+                  )}
+                </section>
+
+                <div className="style3-reset-row">
+                  <button
+                    type="button"
+                    className="scene-banner-upload style3-reset-button"
+                    onClick={handleStyle3Reset}
+                    disabled={isStyle3Busy}
+                  >
+                    {isStyle3Busy ? "处理中..." : "重新选择风格"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="style3-grid" aria-label="选择风格3.0 风格">
+                  {STYLE3_STYLES.map((style) => {
+                    const isSelected = style.id === style3.selectedStyleId;
+
+                    return (
+                      <button
+                        type="button"
+                        key={style.id}
+                        className={isSelected ? "style3-card is-selected" : "style3-card"}
+                        style={{ background: style.gradient }}
+                        onClick={() => handleStyle3Select(style.id)}
+                        disabled={isStyle3Busy}
+                        aria-pressed={isSelected}
+                      >
+                        {style.imageUrl ? (
+                          <img
+                            src={style.imageUrl}
+                            alt=""
+                            className="style3-card-image"
+                          />
+                        ) : null}
+                        <span className="style3-card-shine" />
+                        <span className="style3-card-check" aria-hidden="true">✓</span>
+                        <span className="style3-card-category">{style.category}</span>
+                        <span className="style3-card-label">{style.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  className="style3-upload-target"
+                  onClick={handleSelectImage}
+                  disabled={!auth?.ok || isStyle3Busy}
+                  aria-label="上传图片生成风格3.0"
+                >
+                  <span className="cosplay-upload-plus">+</span>
+                </button>
+
+                {style3.inputPreviewUrl ? (
+                  <div className="cosplay-image-grid cosplay-image-grid-single style3-input-grid">
+                    <article className="cosplay-image-panel">
+                      <div className="cosplay-image-label">
+                        <span>INPUT</span>
+                        <strong>{style3.inputFileName || "IMAGE"}</strong>
+                      </div>
+                      <ImagePreview
+                        src={style3.inputPreviewUrl}
+                        alt="风格3.0 input"
+                        className="cosplay-image-frame"
+                        onPreview={setPreviewImageUrl}
+                      />
+                    </article>
+                  </div>
+                ) : null}
+              </>
+            )}
           </section>
         ) : null}
 
