@@ -232,8 +232,10 @@ const TURN_POLL_INTERVAL_MS = 1500;
 const TURN_POLL_MAX_ATTEMPTS = 120;
 const COSPLAY_POLL_INTERVAL_MS = 2000;
 const COSPLAY_POLL_MAX_ATTEMPTS = 150;
+const STYLE3_INITIAL_POLL_DELAY_MS = 2000;
 const STYLE3_POLL_INTERVAL_MS = 2000;
 const STYLE3_POLL_MAX_ATTEMPTS = 150;
+const STYLE3_POLL_MAX_CONSECUTIVE_ERRORS = 3;
 const STYLE3_STYLES: Style3Style[] = [
   { id: "morning", label: "晨曦", category: "风景", imageUrl: "/style-transfer/morning.png", gradient: "linear-gradient(135deg, #fbbf24 0%, #fb7185 56%, #60a5fa 100%)" },
   { id: "nature", label: "晴空", category: "风景", imageUrl: "/style-transfer/nature.png", gradient: "linear-gradient(135deg, #38bdf8 0%, #86efac 100%)" },
@@ -657,6 +659,7 @@ export default function Home() {
   const workspaceRef = useRef<HTMLElement | null>(null);
   const initializedSessionRef = useRef(false);
   const pollingTurnRef = useRef("");
+  const style3UploadRunRef = useRef("");
   const startedRecommendationSessionsRef = useRef(new Set<string>());
   const modeNoticeTimerRef = useRef<number | null>(null);
   const activeConversation = useMemo(
@@ -1294,7 +1297,7 @@ export default function Home() {
         setCosplay((prev) => ({
           ...prev,
           status: "failed",
-          error: "请先登录",
+          error: auth === null ? "登录状态检查中，请稍后再试" : "请先登录",
         }));
         return;
       }
@@ -1303,7 +1306,7 @@ export default function Home() {
         setStyle3((prev) => ({
           ...prev,
           status: "failed",
-          error: "请先登录",
+          error: auth === null ? "登录状态检查中，请稍后再试" : "请先登录",
         }));
         return;
       }
@@ -1332,6 +1335,9 @@ export default function Home() {
       return;
     }
 
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
     fileInputRef.current?.click();
   }
 
@@ -1340,6 +1346,7 @@ export default function Home() {
       return;
     }
 
+    style3UploadRunRef.current = "";
     setStyle3({
       selectedStyleId: styleId,
       inputPreviewUrl: "",
@@ -1361,6 +1368,7 @@ export default function Home() {
       return;
     }
 
+    style3UploadRunRef.current = "";
     setStyle3({
       selectedStyleId: "",
       inputPreviewUrl: "",
@@ -1410,11 +1418,57 @@ export default function Home() {
   }
 
   function isStyleTaskSuccessStatus(status: string) {
-    const normalizedStatus = status.toLowerCase();
+    const normalizedStatus = status.trim().toLowerCase();
     return (
       normalizedStatus === "success" ||
       normalizedStatus === "succeeded" ||
-      normalizedStatus === "completed"
+      normalizedStatus === "completed" ||
+      normalizedStatus === "done"
+    );
+  }
+
+  function isStyleTaskInProgressStatus(status: string) {
+    const normalizedStatus = status.trim().toLowerCase();
+    return (
+      normalizedStatus === "" ||
+      normalizedStatus === "queued" ||
+      normalizedStatus === "running" ||
+      normalizedStatus === "pending" ||
+      normalizedStatus === "processing" ||
+      normalizedStatus === "submitted" ||
+      normalizedStatus === "created"
+    );
+  }
+
+  function isStyleTaskFailureStatus(status: string) {
+    const normalizedStatus = status.trim().toLowerCase();
+    return (
+      normalizedStatus === "failed" ||
+      normalizedStatus === "error" ||
+      normalizedStatus === "cancelled" ||
+      normalizedStatus === "canceled"
+    );
+  }
+
+  function getStyle3PollingStatus(status: string): Style3Status {
+    const normalizedStatus = status.trim().toLowerCase();
+    return normalizedStatus === "running" || normalizedStatus === "processing" ? "running" : "queued";
+  }
+
+  function isRetryableStyleTaskPollStatus(status: number) {
+    return status === 429 || status === 502 || status === 503 || status === 504 || status >= 500;
+  }
+
+  function createFinalStyleTaskPollError(message: string) {
+    return Object.assign(new Error(message), { final: true });
+  }
+
+  function isFinalStyleTaskPollError(error: unknown) {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      "final" in error &&
+      (error as { final?: boolean }).final === true
     );
   }
 
@@ -1435,7 +1489,7 @@ export default function Home() {
       const payload = (await response.json()) as StyleTaskPollResponse;
       const status = payload.status ?? "";
 
-      const normalizedStatus = status.toLowerCase();
+      const normalizedStatus = status.trim().toLowerCase();
 
       if (normalizedStatus === "queued" || normalizedStatus === "running") {
         setCosplay((prev) => ({
@@ -1581,38 +1635,99 @@ export default function Home() {
     }
   }
 
-  async function pollStyle3Task(taskId: string) {
+  function isCurrentStyle3Run(runId: string) {
+    return style3UploadRunRef.current === runId;
+  }
+
+  async function pollStyle3Task(taskId: string, runId: string) {
+    await wait(STYLE3_INITIAL_POLL_DELAY_MS);
+
+    let consecutiveErrors = 0;
+
     for (let attempt = 0; attempt < STYLE3_POLL_MAX_ATTEMPTS; attempt += 1) {
       if (attempt > 0) {
         await wait(STYLE3_POLL_INTERVAL_MS);
       }
 
-      const response = await fetch(`${getGatewayRequestBaseUrl()}/web/style-edit/tasks/${taskId}`, {
-        cache: "no-store",
-        credentials: "include",
-      });
-      if (!response.ok) {
-        throw new Error(await parseGatewayError(response, "任务查询失败"));
+      if (!isCurrentStyle3Run(runId)) {
+        return;
       }
 
-      const payload = (await response.json()) as StyleTaskPollResponse;
+      let payload: StyleTaskPollResponse;
+      try {
+        const response = await fetch(`${getGatewayRequestBaseUrl()}/web/style-edit/tasks/${taskId}`, {
+          cache: "no-store",
+          credentials: "include",
+        });
+        if (!response.ok) {
+          const message = await parseGatewayError(response, "任务查询失败");
+          if (!isRetryableStyleTaskPollStatus(response.status)) {
+            throw createFinalStyleTaskPollError(message);
+          }
+
+          throw new Error(message);
+        }
+
+        payload = (await response.json()) as StyleTaskPollResponse;
+        consecutiveErrors = 0;
+      } catch (error) {
+        if (isFinalStyleTaskPollError(error)) {
+          throw error;
+        }
+
+        consecutiveErrors += 1;
+        const message = error instanceof Error ? error.message : "任务查询失败";
+        console.warn("[style3] poll retry", {
+          runId,
+          taskId,
+          attempt: attempt + 1,
+          consecutiveErrors,
+          message,
+        });
+
+        if (consecutiveErrors >= STYLE3_POLL_MAX_CONSECUTIVE_ERRORS) {
+          throw new Error(message);
+        }
+
+        setStyle3((prev) =>
+          isCurrentStyle3Run(runId)
+            ? {
+                ...prev,
+                status: prev.status === "running" ? "running" : "queued",
+                error: `任务查询暂时失败，正在重试（${consecutiveErrors}/${STYLE3_POLL_MAX_CONSECUTIVE_ERRORS}）`,
+              }
+            : prev,
+        );
+        continue;
+      }
+
       const status = payload.status ?? "";
 
-      const normalizedStatus = status.toLowerCase();
+      const normalizedStatus = status.trim().toLowerCase();
+      console.info("[style3] poll status", {
+        runId,
+        taskId,
+        attempt: attempt + 1,
+        status: normalizedStatus || "(empty)",
+      });
 
-      if (normalizedStatus === "queued" || normalizedStatus === "running") {
-        setStyle3((prev) => ({
-          ...prev,
-          status: normalizedStatus,
-          queuePosition: payload.queue_position ?? prev.queuePosition,
-          queueSize: payload.queue_size ?? prev.queueSize,
-          progressStage: payload.progress?.stage ?? prev.progressStage,
-          progressPercent:
-            typeof payload.progress?.percent === "number"
-              ? payload.progress.percent
-              : prev.progressPercent,
-          error: "",
-        }));
+      if (isStyleTaskInProgressStatus(status)) {
+        setStyle3((prev) =>
+          isCurrentStyle3Run(runId)
+            ? {
+                ...prev,
+                status: getStyle3PollingStatus(status),
+                queuePosition: payload.queue_position ?? prev.queuePosition,
+                queueSize: payload.queue_size ?? prev.queueSize,
+                progressStage: payload.progress?.stage ?? prev.progressStage,
+                progressPercent:
+                  typeof payload.progress?.percent === "number"
+                    ? payload.progress.percent
+                    : prev.progressPercent,
+                error: "",
+              }
+            : prev,
+        );
         continue;
       }
 
@@ -1622,38 +1737,66 @@ export default function Home() {
           throw new Error("Style Transfer API 未返回结果图片");
         }
 
-        setStyle3((prev) => ({
-          ...prev,
-          resultImgUrl: resultImgUrls[0],
-          status: "succeeded",
-          queuePosition: null,
-          queueSize: null,
-          progressStage: "",
-          progressPercent: null,
-          error: "",
-        }));
+        setStyle3((prev) =>
+          isCurrentStyle3Run(runId)
+            ? {
+                ...prev,
+                resultImgUrl: resultImgUrls[0],
+                status: "succeeded",
+                queuePosition: null,
+                queueSize: null,
+                progressStage: "",
+                progressPercent: null,
+                error: "",
+              }
+            : prev,
+        );
         return;
       }
 
-      if (normalizedStatus === "failed") {
+      if (isStyleTaskFailureStatus(status)) {
         throw new Error(payload.error || payload.message || "风格编辑生成失败");
       }
 
-      throw new Error(payload.message || "未知任务状态");
+      setStyle3((prev) =>
+        isCurrentStyle3Run(runId)
+          ? {
+              ...prev,
+              status: "queued",
+              queuePosition: payload.queue_position ?? prev.queuePosition,
+              queueSize: payload.queue_size ?? prev.queueSize,
+              progressStage: normalizedStatus || prev.progressStage,
+              progressPercent:
+                typeof payload.progress?.percent === "number"
+                  ? payload.progress.percent
+                  : prev.progressPercent,
+              error: payload.message || `等待任务状态更新：${status || "unknown"}`,
+            }
+          : prev,
+      );
     }
 
     throw new Error("任务处理时间较长，请稍后重新上传");
   }
 
-  async function handleStyle3ImageUpload(file: File) {
+  async function handleStyle3ImageUpload(file: File, selectedStyleId: string) {
+    const runId = `style3-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    style3UploadRunRef.current = runId;
+
     try {
-      if (!style3.selectedStyleId) {
+      if (!selectedStyleId) {
         throw new Error("请先选择风格，再上传图片");
       }
 
       if (!auth?.ok) {
         throw new Error("请先登录");
       }
+
+      console.info("[style3] upload start", {
+        runId,
+        fileName: file.name,
+        styleId: selectedStyleId,
+      });
 
       setStyle3((prev) => ({
         ...prev,
@@ -1671,6 +1814,10 @@ export default function Home() {
       }));
 
       const dataUrl = await readFileAsDataUrl(file);
+      if (!isCurrentStyle3Run(runId)) {
+        return;
+      }
+
       setStyle3((prev) => ({
         ...prev,
         inputPreviewUrl: dataUrl,
@@ -1693,6 +1840,14 @@ export default function Home() {
       if (!uploadPayload.img_url) {
         throw new Error("图片上传未返回可用 URL");
       }
+      if (!isCurrentStyle3Run(runId)) {
+        return;
+      }
+
+      console.info("[style3] upload complete", {
+        runId,
+        imgUrl: uploadPayload.img_url,
+      });
 
       setStyle3((prev) => ({
         ...prev,
@@ -1713,7 +1868,7 @@ export default function Home() {
         credentials: "include",
         body: JSON.stringify({
           img_url: uploadPayload.img_url,
-          styles: [style3.selectedStyleId],
+          styles: [selectedStyleId],
           remove_pedestrians: false,
           seed: -1,
         }),
@@ -1726,11 +1881,20 @@ export default function Home() {
       if (!stylePayload.task_id) {
         throw new Error("Style Transfer API 未返回任务 ID");
       }
+      if (!isCurrentStyle3Run(runId)) {
+        return;
+      }
+
+      console.info("[style3] task submitted", {
+        runId,
+        taskId: stylePayload.task_id,
+        status: stylePayload.status,
+      });
 
       setStyle3((prev) => ({
         ...prev,
         taskId: stylePayload.task_id ?? "",
-        status: stylePayload.status === "running" ? "running" : "queued",
+        status: getStyle3PollingStatus(stylePayload.status ?? ""),
         queuePosition: stylePayload.queue_position ?? null,
         queueSize: stylePayload.queue_size ?? null,
         progressStage: "",
@@ -1738,8 +1902,16 @@ export default function Home() {
         error: "",
       }));
 
-      await pollStyle3Task(stylePayload.task_id);
+      await pollStyle3Task(stylePayload.task_id, runId);
     } catch (error) {
+      if (!isCurrentStyle3Run(runId)) {
+        return;
+      }
+
+      console.warn("[style3] upload failed", {
+        runId,
+        message: error instanceof Error ? error.message : "风格编辑生成失败",
+      });
       setStyle3((prev) => ({
         ...prev,
         status: "failed",
@@ -1875,7 +2047,7 @@ export default function Home() {
       if (isCosplayWorkspace) {
         await handleCosplayImageUpload(file);
       } else if (isStyle3Workspace) {
-        await handleStyle3ImageUpload(file);
+        await handleStyle3ImageUpload(file, style3.selectedStyleId);
       } else {
         await handleImageFileUpload(file);
       }
@@ -1906,7 +2078,7 @@ export default function Home() {
     if (isCosplayWorkspace) {
       void handleCosplayImageUpload(file);
     } else if (isStyle3Workspace) {
-      void handleStyle3ImageUpload(file);
+      void handleStyle3ImageUpload(file, style3.selectedStyleId);
     } else {
       void handleImageFileUpload(file);
     }
@@ -1960,7 +2132,7 @@ export default function Home() {
     if (isCosplayWorkspace) {
       void handleCosplayImageUpload(file);
     } else if (isStyle3Workspace) {
-      void handleStyle3ImageUpload(file);
+      void handleStyle3ImageUpload(file, style3.selectedStyleId);
     } else {
       void handleImageFileUpload(file);
     }
