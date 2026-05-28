@@ -1734,7 +1734,28 @@ export default function Home() {
       if (isStyleTaskSuccessStatus(status)) {
         const resultImgUrls = getStyleTaskResultUrls(payload);
         if (resultImgUrls.length === 0) {
-          throw new Error("Style Transfer API 未返回结果图片");
+          console.warn("[style3] success without result urls", {
+            runId,
+            taskId,
+            attempt: attempt + 1,
+          });
+          setStyle3((prev) =>
+            isCurrentStyle3Run(runId)
+              ? {
+                  ...prev,
+                  status: "running",
+                  queuePosition: payload.queue_position ?? prev.queuePosition,
+                  queueSize: payload.queue_size ?? prev.queueSize,
+                  progressStage: payload.progress?.stage ?? "waiting_result",
+                  progressPercent:
+                    typeof payload.progress?.percent === "number"
+                      ? payload.progress.percent
+                      : prev.progressPercent,
+                  error: "任务已完成，正在等待结果图片",
+                }
+              : prev,
+          );
+          continue;
         }
 
         setStyle3((prev) =>
