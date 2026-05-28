@@ -256,11 +256,11 @@ const STYLE3_STYLES: Style3Style[] = [
   { id: "stage_light", label: "主舞台", category: "舞台", imageUrl: "/style-transfer/stage_light.png", gradient: "linear-gradient(135deg, #0f172a 0%, #c026d3 100%)" },
   { id: "initial_stage_light", label: "初舞台", category: "舞台", imageUrl: "/style-transfer/initial_stage_light.png", gradient: "linear-gradient(135deg, #1e3a8a 0%, #f9a8d4 100%)" },
   { id: "stage_dage", label: "打歌台", category: "舞台", imageUrl: "/style-transfer/stage_dage.png", gradient: "linear-gradient(135deg, #111827 0%, #22d3ee 52%, #fb7185 100%)" },
-  { id: "heavy_rain", label: "雨天", category: "天气", imageUrl: "/style-transfer/heavy_rain.png", gradient: "linear-gradient(135deg, #0f172a 0%, #64748b 58%, #38bdf8 100%)" },
-  { id: "polarlights", label: "极光", category: "天气", imageUrl: "/style-transfer/polarlights.png", gradient: "linear-gradient(135deg, #020617 0%, #10b981 48%, #8b5cf6 100%)" },
-  { id: "rainbow", label: "彩虹", category: "天气", imageUrl: "/style-transfer/rainbow.png", gradient: "linear-gradient(135deg, #ef4444 0%, #f59e0b 25%, #22c55e 52%, #3b82f6 76%, #8b5cf6 100%)" },
-  { id: "blizzard", label: "雪天", category: "天气", imageUrl: "/style-transfer/blizzard.png", gradient: "linear-gradient(135deg, #f8fafc 0%, #bae6fd 48%, #64748b 100%)" },
-  { id: "heavy_fog", label: "雾天", category: "天气", imageUrl: "/style-transfer/heavy_fog.png", gradient: "linear-gradient(135deg, #f1f5f9 0%, #94a3b8 58%, #475569 100%)" },
+  { id: "heavy_rain", label: "雨天", category: "天气", gradient: "linear-gradient(135deg, #0f172a 0%, #64748b 58%, #38bdf8 100%)" },
+  { id: "polarlights", label: "极光", category: "天气", gradient: "linear-gradient(135deg, #020617 0%, #10b981 48%, #8b5cf6 100%)" },
+  { id: "rainbow", label: "彩虹", category: "天气", gradient: "linear-gradient(135deg, #ef4444 0%, #f59e0b 25%, #22c55e 52%, #3b82f6 76%, #8b5cf6 100%)" },
+  { id: "blizzard", label: "雪天", category: "天气", gradient: "linear-gradient(135deg, #f8fafc 0%, #bae6fd 48%, #64748b 100%)" },
+  { id: "heavy_fog", label: "雾天", category: "天气", gradient: "linear-gradient(135deg, #f1f5f9 0%, #94a3b8 58%, #475569 100%)" },
 ];
 const BUILD_COMMIT_SHA =
   process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "dev-local";
@@ -2496,7 +2496,7 @@ export default function Home() {
                 className={isCosplayWorkspace ? "active" : undefined}
                 onClick={() => setActiveWorkspace("cosplay")}
               >
-                Cos Lab
+                Style Lab
               </button>
               <button
                 type="button"
