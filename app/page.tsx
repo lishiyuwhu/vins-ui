@@ -697,7 +697,8 @@ export default function Home() {
         style3.status === "uploading" ||
         style3.status === "queued" ||
         style3.status === "running" ||
-        style3.status === "succeeded"
+        style3.status === "succeeded" ||
+        style3.status === "failed"
       ),
   );
   const hasBoundImage = Boolean(originalImageUrl);
@@ -1072,6 +1073,8 @@ export default function Home() {
         ? style3QueueText || "任务排队中"
       : style3.status === "running"
         ? style3QueueText || "正在生成风格编辑结果"
+      : style3.status === "failed"
+        ? style3.error || "上传失败，请重新上传"
       : "等待结果图";
   const cosplayQueueText = useMemo(() => {
     if (cosplay.status === "queued") {
@@ -1385,10 +1388,20 @@ export default function Home() {
     });
   }
 
-  async function parseGatewayError(response: Response, fallback: string) {
+  async function parseGatewayError(
+    response: Response,
+    fallback: string,
+    options?: { badGatewayMessage?: string },
+  ) {
     const payload = await response.json().catch(() => null);
     if (payload && typeof payload.detail === "string" && payload.detail.trim()) {
       return payload.detail;
+    }
+    if (payload && typeof payload.message === "string" && payload.message.trim()) {
+      return payload.message;
+    }
+    if (payload && typeof payload.error === "string" && payload.error.trim()) {
+      return payload.error;
     }
 
     if (response.status === 400) return "不支持的风格类型";
@@ -1396,7 +1409,7 @@ export default function Home() {
     if (response.status === 404) return "任务不存在或已过期，请重新上传";
     if (response.status === 429) return "服务繁忙，请稍后再试";
     if (response.status === 503) return "服务暂时不可用，请稍后再试";
-    if (response.status === 502) return "服务暂时未返回结果图片";
+    if (response.status === 502) return options?.badGatewayMessage ?? "服务暂时未返回结果图片";
     if (response.status === 504) return "服务处理超时，请稍后重试";
     return fallback;
   }
@@ -1570,7 +1583,11 @@ export default function Home() {
         body: uploadFormData,
       });
       if (!uploadResponse.ok) {
-        throw new Error(await parseGatewayError(uploadResponse, "图片上传失败"));
+        throw new Error(
+          await parseGatewayError(uploadResponse, "图片上传失败", {
+            badGatewayMessage: "图片上传失败，服务暂时不可用，请稍后重试",
+          }),
+        );
       }
 
       const uploadPayload = (await uploadResponse.json()) as {
@@ -1852,7 +1869,11 @@ export default function Home() {
         body: uploadFormData,
       });
       if (!uploadResponse.ok) {
-        throw new Error(await parseGatewayError(uploadResponse, "图片上传失败"));
+        throw new Error(
+          await parseGatewayError(uploadResponse, "图片上传失败", {
+            badGatewayMessage: "图片上传失败，服务暂时不可用，请稍后重试",
+          }),
+        );
       }
 
       const uploadPayload = (await uploadResponse.json()) as {
@@ -1977,8 +1998,11 @@ export default function Home() {
         body: uploadFormData,
       });
       if (!uploadResponse.ok) {
-        const uploadErr = await uploadResponse.json().catch(() => ({ detail: "上传失败" }));
-        throw new Error(uploadErr.detail || "图片上传失败");
+        throw new Error(
+          await parseGatewayError(uploadResponse, "图片上传失败", {
+            badGatewayMessage: "图片上传失败，服务暂时不可用，请稍后重试",
+          }),
+        );
       }
       const uploadPayload = (await uploadResponse.json()) as {
         img_url?: string;
@@ -2923,6 +2947,16 @@ export default function Home() {
                 </section>
 
                 <div className="style3-reset-row">
+                  {style3.status === "failed" ? (
+                    <button
+                      type="button"
+                      className="scene-banner-upload style3-reset-button"
+                      onClick={handleSelectImage}
+                      disabled={!auth?.ok || isStyle3Busy}
+                    >
+                      重新上传
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="scene-banner-upload style3-reset-button"
