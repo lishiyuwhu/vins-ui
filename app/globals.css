@@ -301,7 +301,8 @@ button {
 
 .history-list {
   display: grid;
-  gap: 4px;
+  gap: 8px;
+  grid-auto-rows: 44px;
   min-height: 0;
   overflow: hidden auto;
 }
@@ -378,7 +379,7 @@ button {
   display: flex;
   align-items: center;
   min-width: 0;
-  max-width: calc(100% - 64px);
+  max-width: calc(100% - 80px);
 }
 
 .history-copy strong {
@@ -401,7 +402,6 @@ button {
   align-items: center;
   width: 100%;
   min-width: 0;
-  overflow: hidden;
 }
 
 .history-item-wrapper .history-item {
