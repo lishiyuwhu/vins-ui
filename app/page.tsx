@@ -515,14 +515,18 @@ function chatMessagesFromDb(items: DbMessage[]): { messages: ChatMessage[]; pend
 
   for (const item of items) {
     if (item.role === "user") {
-      const imageUrl = pickImageByType(item.image_urls, "input");
+      if (item.content_text && /^rec_\d+$/i.test(item.content_text.trim())) {
+        continue;
+      }
+      const inputImage = pickImageByType(item.image_urls, "input");
+      const isUpload = Boolean(inputImage) && (!item.content_text || item.content_text.trim() === "");
       messages.push({
         id: `db-msg-${item.id}`,
         role: "user",
-        kind: "command",
+        kind: isUpload ? "upload" : "command",
         label: USER_NAME,
-        text: item.content_text ?? "",
-        imageUrl,
+        text: isUpload ? "用户上传图片" : (item.content_text ?? ""),
+        imageUrl: inputImage,
       });
       continue;
     }
