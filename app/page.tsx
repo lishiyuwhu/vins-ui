@@ -156,6 +156,7 @@ type ChatMessage =
 
 type LocalConversation = {
   id: string;
+  dbId?: number;
   title: string;
   sessionId: string;
   originalImageUrl: string;
@@ -175,6 +176,38 @@ type LocalConversation = {
   requestError: string;
   externalEnabled: boolean;
   thinkingEnabled: boolean;
+  hydratedFromDb?: boolean;
+  pendingResumeTaskIds?: string[];
+};
+
+type DbConversation = {
+  id: number;
+  session_id: string | null;
+  title: string;
+  last_message_at: string | null;
+  created_at: string;
+};
+
+type DbMessageImage = {
+  url: string;
+  type?: string;
+};
+
+type DbMessage = {
+  id: number;
+  role: "user" | "assistant" | "system" | "tool";
+  content_text: string | null;
+  image_urls: DbMessageImage[] | null;
+  status: "pending" | "completed" | "failed";
+  task_id: string | null;
+  error_message: string | null;
+  created_at: string;
+};
+
+type AssistantContent = {
+  resolved_cmd?: string | null;
+  clarify_question?: string | null;
+  result_type?: "execute" | "clarify" | null;
 };
 
 type SidebarIconName =
@@ -359,6 +392,179 @@ function shouldUseSameOriginGateway() {
 
 function getGatewayRequestBaseUrl() {
   return shouldUseSameOriginGateway() ? "" : GATEWAY_BASE;
+}
+
+async function fetchConversationsFromDb(): Promise<DbConversation[] | null> {
+  try {
+    const response = await fetch(`${getGatewayRequestBaseUrl()}/web/conversations`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (Array.isArray(payload)) return payload as DbConversation[];
+    if (Array.isArray(payload?.items)) return payload.items as DbConversation[];
+    if (Array.isArray(payload?.conversations)) return payload.conversations as DbConversation[];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchMessagesFromDb(dbId: number): Promise<DbMessage[] | null> {
+  try {
+    const response = await fetch(`${getGatewayRequestBaseUrl()}/web/conversations/${dbId}/messages`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (Array.isArray(payload)) return payload as DbMessage[];
+    if (Array.isArray(payload?.items)) return payload.items as DbMessage[];
+    if (Array.isArray(payload?.messages)) return payload.messages as DbMessage[];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function renameConversationOnDb(dbId: number, title: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${getGatewayRequestBaseUrl()}/web/conversations/${dbId}/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ title }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function deleteConversationOnDb(dbId: number): Promise<boolean> {
+  try {
+    const response = await fetch(`${getGatewayRequestBaseUrl()}/web/conversations/${dbId}/delete`, {
+      method: "POST",
+      credentials: "include",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function localConversationFromDb(db: DbConversation): LocalConversation {
+  return {
+    id: `db-${db.id}`,
+    dbId: db.id,
+    title: db.title || "未命名对话",
+    sessionId: db.session_id ?? "",
+    originalImageUrl: "",
+    currentImageUrl: "",
+    uploadedImageUrl: "",
+    uploadedFileName: "",
+    recommendations: [],
+    recommendationStatus: "idle",
+    dismissedRecommendationIds: [HIDE_ALL_RECOMMENDATIONS_KEY],
+    messages: [],
+    userCmd: "",
+    activeTurnId: "",
+    activeTurnStatus: "",
+    activeQueuePosition: null,
+    activeQueueSize: null,
+    statusText: "",
+    requestError: "",
+    externalEnabled: false,
+    thinkingEnabled: true,
+    hydratedFromDb: false,
+  };
+}
+
+function pickImageByType(images: DbMessageImage[] | null | undefined, type: "input" | "output"): string | undefined {
+  if (!images || images.length === 0) return undefined;
+  const typed = images.find((image) => image.type === type);
+  if (typed?.url) return typed.url;
+  return images[0]?.url;
+}
+
+function parseAssistantContent(text: string | null | undefined): AssistantContent | null {
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") return parsed as AssistantContent;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function chatMessagesFromDb(items: DbMessage[]): { messages: ChatMessage[]; pendingTaskIds: string[] } {
+  const messages: ChatMessage[] = [];
+  const pendingTaskIds: string[] = [];
+
+  if (items.length === 0) {
+    messages.push({
+      id: "assistant-welcome",
+      role: "assistant",
+      label: AGENT_NAME,
+      text: "欢迎使用 VINS Agent。复制粘贴、点击加号上传，或将图片拖入工作区开始。\n随后可以通过自然语言继续进行多轮图像编辑。",
+    });
+    return { messages, pendingTaskIds };
+  }
+
+  for (const item of items) {
+    if (item.role === "user") {
+      const imageUrl = pickImageByType(item.image_urls, "input");
+      messages.push({
+        id: `db-msg-${item.id}`,
+        role: "user",
+        kind: "command",
+        label: USER_NAME,
+        text: item.content_text ?? "",
+        imageUrl,
+      });
+      continue;
+    }
+
+    if (item.role === "assistant") {
+      if (item.status === "pending") {
+        if (item.task_id) pendingTaskIds.push(item.task_id);
+        continue;
+      }
+
+      if (item.status === "failed") {
+        messages.push({
+          id: `db-msg-${item.id}`,
+          role: "assistant",
+          label: AGENT_NAME,
+          text: item.error_message || "处理失败",
+        });
+        continue;
+      }
+
+      const parsed = parseAssistantContent(item.content_text);
+      const outputImage = pickImageByType(item.image_urls, "output");
+      if (parsed?.result_type === "clarify" && parsed.clarify_question) {
+        messages.push({
+          id: `db-msg-${item.id}`,
+          role: "assistant",
+          label: AGENT_NAME,
+          text: parsed.clarify_question,
+        });
+      } else {
+        messages.push({
+          id: `db-msg-${item.id}`,
+          role: "assistant",
+          label: AGENT_NAME,
+          text: parsed?.resolved_cmd || item.content_text || (outputImage ? "已生成编辑结果" : ""),
+          imageUrl: outputImage,
+        });
+      }
+    }
+  }
+
+  return { messages, pendingTaskIds };
 }
 
 function buildUploadMessage(imageUrl: string): ChatMessage {
@@ -658,6 +864,8 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const initializedSessionRef = useRef(false);
+  const dbConversationsLoadedRef = useRef(false);
+  const hydratingDbConversationsRef = useRef(new Set<string>());
   const pollingTurnRef = useRef("");
   const style3UploadRunRef = useRef("");
   const startedRecommendationSessionsRef = useRef(new Set<string>());
@@ -708,7 +916,11 @@ export default function Home() {
     activeTurnId || (auth?.ok && sessionId && hasBoundImage && !isTurnBusy),
   );
   const sortedConversations = useMemo(
-    () => [...conversations].reverse(),
+    () => {
+      const localOnly = conversations.filter((c) => !c.dbId);
+      const dbBacked = conversations.filter((c) => c.dbId);
+      return [...localOnly.slice().reverse(), ...dbBacked];
+    },
     [conversations],
   );
   const queueProgressPercent = getQueueProgressPercent(
@@ -883,6 +1095,10 @@ export default function Home() {
       return;
     }
 
+    if (!dbConversationsLoadedRef.current) {
+      return;
+    }
+
     if (initializedSessionRef.current && conversations.length > 0) {
       return;
     }
@@ -892,6 +1108,86 @@ export default function Home() {
       void createEmptySession("图片处理 #1", 1);
     }
   }, [activeWorkspace, auth?.ok, conversations.length, isCreating]);
+
+  useEffect(() => {
+    if (!auth?.ok) {
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const dbs = await fetchConversationsFromDb();
+      if (cancelled) return;
+      dbConversationsLoadedRef.current = true;
+      if (!dbs || dbs.length === 0) {
+        return;
+      }
+      setConversations((prev) => {
+        const fromDb = dbs.map((db) => {
+          const existing = prev.find((c) => c.id === `db-${db.id}`);
+          if (existing) {
+            return { ...existing, title: db.title || existing.title, sessionId: db.session_id ?? existing.sessionId };
+          }
+          return localConversationFromDb(db);
+        });
+        const localOnly = prev.filter((c) => !c.dbId);
+        return [...localOnly, ...fromDb];
+      });
+      setActiveConversationId((current) => {
+        if (current) return current;
+        const firstDb = dbs[0];
+        return firstDb ? `db-${firstDb.id}` : current;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth?.ok]);
+
+  useEffect(() => {
+    if (!auth?.ok || !activeConversationId) return;
+    const conv = conversations.find((c) => c.id === activeConversationId);
+    if (!conv?.dbId || conv.hydratedFromDb) return;
+    if (hydratingDbConversationsRef.current.has(conv.id)) return;
+    hydratingDbConversationsRef.current.add(conv.id);
+
+    let cancelled = false;
+    (async () => {
+      const items = await fetchMessagesFromDb(conv.dbId!);
+      if (cancelled) {
+        hydratingDbConversationsRef.current.delete(conv.id);
+        return;
+      }
+      if (!items) {
+        hydratingDbConversationsRef.current.delete(conv.id);
+        return;
+      }
+      const { messages, pendingTaskIds } = chatMessagesFromDb(items);
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === conv.id
+            ? {
+                ...c,
+                messages,
+                hydratedFromDb: true,
+                pendingResumeTaskIds: pendingTaskIds,
+              }
+            : c,
+        ),
+      );
+      hydratingDbConversationsRef.current.delete(conv.id);
+      if (conv.sessionId) {
+        for (const tid of pendingTaskIds) {
+          void pollTurnResult(conv.sessionId, tid);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConversationId, auth?.ok, conversations]);
 
   useEffect(() => {
     if (!previewImageUrl) {
@@ -1264,10 +1560,47 @@ export default function Home() {
   async function handleLogout() {
     await fetch(`${getGatewayRequestBaseUrl()}/web/logout`, { method: "POST", credentials: "include" }).catch(() => undefined);
     initializedSessionRef.current = false;
+    dbConversationsLoadedRef.current = false;
+    hydratingDbConversationsRef.current.clear();
     setAuth({ ok: false, error: "未登录" });
     setConversations([]);
     setActiveConversationId("");
     setSessionCounter(0);
+  }
+
+  async function handleRenameConversation(conversation: LocalConversation) {
+    if (!conversation.dbId) return;
+    if (typeof window === "undefined") return;
+    const next = window.prompt("重命名对话", conversation.title);
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (!trimmed || trimmed === conversation.title) return;
+    const ok = await renameConversationOnDb(conversation.dbId, trimmed);
+    if (!ok) {
+      window.alert("重命名失败，请稍后再试");
+      return;
+    }
+    updateConversation(conversation.id, (c) => ({ ...c, title: trimmed }));
+  }
+
+  async function handleDeleteConversation(conversation: LocalConversation) {
+    if (!conversation.dbId) return;
+    if (typeof window === "undefined") return;
+    const confirmed = window.confirm(`确认删除对话「${conversation.title}」？此操作不可撤销。`);
+    if (!confirmed) return;
+    const ok = await deleteConversationOnDb(conversation.dbId);
+    if (!ok) {
+      window.alert("删除失败，请稍后再试");
+      return;
+    }
+    setConversations((prev) => {
+      const remaining = prev.filter((c) => c.id !== conversation.id);
+      if (activeConversationId === conversation.id) {
+        const fallback = remaining[0]?.id ?? "";
+        setActiveConversationId(fallback);
+      }
+      return remaining;
+    });
   }
 
   function handleCreateEntry() {
@@ -2591,26 +2924,64 @@ export default function Home() {
               {sortedConversations.length > 0 ? (
                 sortedConversations.map((conversation) => {
                   const isActive = conversation.id === activeConversationId;
+                  const hasDbId = conversation.dbId != null;
 
                   return (
-                    <button
+                    <div
                       key={conversation.id}
                       className={
-                        isActive ? "history-item is-active history-item-live" : "history-item"
+                        isActive
+                          ? "history-item-wrapper is-active"
+                          : "history-item-wrapper"
                       }
-                      onClick={() => {
-                        setActiveWorkspace("agent");
-                        setActiveConversationId(conversation.id);
-                        setSidebarOpen(false);
-                      }}
                     >
-                      <span className="history-item-icon">
-                        <SidebarIcon name="chat" />
-                      </span>
-                      <span className="history-copy">
-                        <strong>{conversation.title}</strong>
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        className={
+                          isActive ? "history-item is-active history-item-live" : "history-item"
+                        }
+                        onClick={() => {
+                          setActiveWorkspace("agent");
+                          setActiveConversationId(conversation.id);
+                          setSidebarOpen(false);
+                        }}
+                      >
+                        <span className="history-item-icon">
+                          <SidebarIcon name="chat" />
+                        </span>
+                        <span className="history-copy">
+                          <strong>{conversation.title}</strong>
+                        </span>
+                      </button>
+                      {hasDbId ? (
+                        <div className="history-item-actions">
+                          <button
+                            type="button"
+                            className="history-action-btn"
+                            aria-label="重命名"
+                            title="重命名"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleRenameConversation(conversation);
+                            }}
+                          >
+                            ✎
+                          </button>
+                          <button
+                            type="button"
+                            className="history-action-btn history-action-btn-danger"
+                            aria-label="删除"
+                            title="删除"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteConversation(conversation);
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                   );
                 })
               ) : (

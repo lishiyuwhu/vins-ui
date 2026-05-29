@@ -394,6 +394,65 @@ button {
   max-width: calc(100% - 32px);
 }
 
+.history-item-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.history-item-wrapper .history-item {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.history-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.history-item-wrapper:hover .history-item-actions,
+.history-item-wrapper:focus-within .history-item-actions,
+.history-item-wrapper.is-active .history-item-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.history-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.54);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.history-action-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.86);
+}
+
+.history-action-btn-danger:hover {
+  background: rgba(220, 38, 38, 0.12);
+  color: rgb(185, 28, 28);
+}
+
 .sidebar-footer {
   display: flex;
   align-items: center;
@@ -4180,5 +4239,16 @@ button {
     min-height: 40px;
     padding: 0 14px;
     font-size: 14px;
+  }
+
+  .history-item-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .history-action-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
   }
 }
