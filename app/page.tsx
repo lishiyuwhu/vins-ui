@@ -502,6 +502,7 @@ function parseAssistantContent(text: string | null | undefined): AssistantConten
 function chatMessagesFromDb(items: DbMessage[]): { messages: ChatMessage[]; pendingTaskIds: string[] } {
   const messages: ChatMessage[] = [];
   const pendingTaskIds: string[] = [];
+  let hasEmittedUpload = false;
 
   if (items.length === 0) {
     messages.push({
@@ -518,15 +519,12 @@ function chatMessagesFromDb(items: DbMessage[]): { messages: ChatMessage[]; pend
       if (item.content_text && /^rec_\d+$/i.test(item.content_text.trim())) {
         continue;
       }
-      const inputImage = pickImageByType(item.image_urls, "input");
-      const isUpload = Boolean(inputImage) && (!item.content_text || item.content_text.trim() === "");
       messages.push({
         id: `db-msg-${item.id}`,
         role: "user",
-        kind: isUpload ? "upload" : "command",
+        kind: "command",
         label: USER_NAME,
-        text: isUpload ? "用户上传图片" : (item.content_text ?? ""),
-        imageUrl: inputImage,
+        text: item.content_text ?? "",
       });
       continue;
     }
@@ -548,7 +546,21 @@ function chatMessagesFromDb(items: DbMessage[]): { messages: ChatMessage[]; pend
       }
 
       const parsed = parseAssistantContent(item.content_text);
+      const inputImage = pickImageByType(item.image_urls, "input");
       const outputImage = pickImageByType(item.image_urls, "output");
+
+      if (inputImage && !hasEmittedUpload) {
+        hasEmittedUpload = true;
+        messages.push({
+          id: `db-msg-${item.id}-upload`,
+          role: "user",
+          kind: "upload",
+          label: USER_NAME,
+          text: "用户上传图片",
+          imageUrl: inputImage,
+        });
+      }
+
       if (parsed?.result_type === "clarify" && parsed.clarify_question) {
         messages.push({
           id: `db-msg-${item.id}`,
